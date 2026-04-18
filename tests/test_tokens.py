@@ -69,10 +69,10 @@ def test_dataset_prototype_is_deterministic():
 def test_ground_truth_structure():
     gt = load_ground_truth(GT_PATH)
     assert set(gt.keys()) == {
-        "cifar10",
+        "cifar_10",
         "oxford_pets",
         "cub200",
-        "caltech101",
+        "caltech_101",
         "stanford_dogs",
         "nabird",
         "voc2007",
@@ -87,7 +87,7 @@ def test_ground_truth_structure():
 def test_accuracy_matrix_fills_missing_self_pairs(model_tokens):
     gt = load_ground_truth(GT_PATH)
     model_ids = sorted(model_tokens.keys())
-    dataset_ids = ["caltech101", "cifar10"]  # GT-key form
+    dataset_ids = ["caltech_101", "cifar_10"]
     rng = random.Random(0)
     mat = build_accuracy_matrix(
         gt, model_ids, dataset_ids, missing_value="random_rank", rng=rng
@@ -98,12 +98,14 @@ def test_accuracy_matrix_fills_missing_self_pairs(model_tokens):
     # one per arch (alexnet/googlenet/resnet18/resnet50) with source == target.
     # 32 models - 28 GT rows = 4 filled per column.
     # Spot-check: resnet50_cifar10 is missing from the cifar10 GT column.
+    # Inner keys (model ids) keep the no-underscore source form matching
+    # the PARC embedding filenames; only outer GT keys were renamed.
     for arch in ("alexnet", "googlenet", "resnet18", "resnet50"):
         missing = f"{arch}_cifar10"
         assert missing in model_ids
-        assert missing not in gt["cifar10"]
-    col = mat[:, dataset_ids.index("cifar10")]
-    observed = np.array(list(gt["cifar10"].values()))
+        assert missing not in gt["cifar_10"]
+    col = mat[:, dataset_ids.index("cifar_10")]
+    observed = np.array(list(gt["cifar_10"].values()))
     lo, hi = observed.min() - 1e-2, observed.max() + 1e-2
     assert col.min() >= lo
     assert col.max() <= hi
@@ -116,7 +118,6 @@ def bank():
         dataset_root=DATASET_ROOT,
         dataset_ids=["caltech_101"],
         gt_path=GT_PATH,
-        gt_dataset_name_map={"caltech_101": "caltech101"},
         seed=0,
     )
 

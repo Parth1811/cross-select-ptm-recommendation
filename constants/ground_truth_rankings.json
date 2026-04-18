@@ -1,5 +1,5 @@
 {
-  "cifar10": {
+  "cifar_10": {
     "resnet18_imagenet": 95.86,
     "resnet18_voc2007": 95.65,
     "resnet18_caltech101": 95.63000000000001,
@@ -89,7 +89,7 @@
     "googlenet_caltech101": 44.75319295823266,
     "googlenet_voc2007": 43.54504659993096
   },
-  "caltech101": {
+  "caltech_101": {
     "resnet50_cifar10": 95.74144486692016,
     "resnet50_oxford_pets": 95.55133079847909,
     "resnet50_voc2007": 95.55133079847909,

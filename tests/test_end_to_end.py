@@ -29,7 +29,6 @@ def trainer(tmp_path_factory):
         dataset_root=DATASET_ROOT,
         dataset_ids=["caltech_101"],
         gt_path=GT_PATH,
-        gt_dataset_name_map={"caltech_101": "caltech101"},
         seed=0,
     )
     split = build_split(
