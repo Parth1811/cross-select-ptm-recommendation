@@ -1,0 +1,16 @@
+\section{Ranking and Evaluation Metrics}
+\label{sec:ranking-metrics}
+
+Evaluating the quality of predicted rankings requires metrics that quantify the concordance between two orderings. Kendall's rank correlation coefficient $\tau$~\cite{kendall1938new} measures the degree of agreement between two rankings by comparing the number of concordant pairs (pairs ranked in the same order) to discordant pairs (pairs ranked in opposite orders):
+\begin{equation}
+\tau = \frac{C - D}{\binom{n}{2}} = \frac{C - D}{n(n-1)/2},
+\label{eq:kendall-tau}
+\end{equation}
+where $C$ denotes the number of concordant pairs, $D$ the number of discordant pairs, and $n$ the total number of items being ranked. The coefficient ranges from $-1$ (perfect disagreement) to $+1$ (perfect agreement), with $0$ indicating no correlation~\cite{agresti2010analysis}.
+
+For model recommendation tasks, not all ranking positions carry equal importance; accurately identifying the top-performing models is typically more critical than precisely ordering lower-ranked candidates. To address this, we employ weighted Kendall's tau~\cite{vigna2015weighted}, which assigns greater importance to pairs involving highly-ranked items:
+\begin{equation}
+\tau_w = \frac{\sum_{i<j} w_{ij} \cdot \text{sgn}((r_i - r_j)(s_i - s_j))}{\sum_{i<j} w_{ij}},
+\label{eq:weighted-kendall-tau}
+\end{equation}
+where $r_i$ and $s_i$ denote the ranks of item $i$ in the predicted and ground-truth rankings, respectively, and $w_{ij}$ represents the weight assigned to the pair $(i,j)$, typically defined as a decreasing function of rank positions~\cite{kumar2010generalized}. This weighted variant serves as the primary evaluation metric for assessing the quality of PTM recommendations in our experimental results.

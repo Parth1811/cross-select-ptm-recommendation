@@ -1,0 +1,49 @@
+\subsection{Quadrant II: Unknown Models, Known Datasets}
+\label{subsec:quadrant2}
+
+Quadrant II evaluates Cross-Select's ability to generalize to pre-trained models not encountered during training, testing a critical component of Hypothesis~2. The evaluation employs 10 models excluded from the training model zoo while maintaining dataset tokens derived from the same 11 datasets used in Quadrant~I. Performance degrades compared to Quadrant~I, with mean weighted Kendall's tau dropping to $\tau_w = 0.64$ from 0.82, indicating that parameter-based model encoding provides limited generalization to unseen model architectures. This degradation is most pronounced for models whose architectural families (e.g., Swin Transformers, ConvNeXt) differ substantially from the training distribution, which predominantly featured ResNet and EfficientNet variants. Figure~\ref{fig:q2-unknown-models} illustrates performance across the 10 unseen models, revealing high variance ($\sigma = 0.18$ in $\tau_w$) that correlates with architectural similarity to training models. While Cross-Select remains functional on unknown models—producing rankings superior to random baseline ($\tau_w = 0.05$)—the results suggest that the learned parameter-to-embedding mapping struggles to extrapolate beyond familiar architectural patterns, highlighting a limitation of the current encoding strategy.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{figures/unknown_models_known_datasets}
+\caption{Performance of Cross-Select on 10 unseen models across known datasets in Quadrant II. Mean $\tau_w = 0.64$ represents a degradation from Quadrant I ($\tau_w = 0.82$), with high variance ($\sigma = 0.18$) correlating with architectural divergence from training distribution.}
+\label{fig:q2-unknown-models}
+\end{figure}
+
+\subsection{Quadrant III: Known Models, Unknown Datasets}
+\label{subsec:quadrant3}
+
+Quadrant III assesses Cross-Select's generalization to unseen datasets while maintaining the familiar model zoo of 31 pre-trained models from training, providing a strong test of the dataset encoding component of Hypothesis~2. The evaluation uses dataset tokens extracted from 5 datasets entirely outside the training set, spanning different visual domains including fine-grained classification (Stanford Dogs), medical imaging (ChestX-ray8), and satellite imagery (EuroSAT). Cross-Select demonstrates remarkably strong performance with mean $\tau_w = 0.78$, only 5\% below Quadrant~I performance despite encountering completely novel data distributions. Figure~\ref{fig:q3-unknown-datasets} shows consistent performance across all five unseen datasets ($\tau_w$ range: 0.74--0.82), indicating that the cross-attention mechanism effectively transfers model-dataset compatibility patterns to new domains when the model representations remain familiar. This result provides compelling evidence for Hypothesis~2's dataset generalization claim and demonstrates a critical advantage over Model Spider, which cannot accommodate datasets outside its fixed training set. The minimal performance degradation suggests that CLIP-derived dataset tokens capture generalizable semantic properties that transcend specific training distributions.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{figures/known_models_unknown_datasets_breakdown}
+\caption{Performance breakdown across 5 unseen datasets with known models in Quadrant III. Mean $\tau_w = 0.78$ represents strong generalization with minimal degradation from Quadrant I, validating dataset encoding robustness across diverse visual domains.}
+\label{fig:q3-unknown-datasets}
+\end{figure}
+
+\subsection{Quadrant IV: Unknown Models, Unknown Datasets}
+\label{subsec:quadrant4}
+
+Quadrant IV presents the most challenging evaluation scenario, testing Cross-Select's zero-shot generalization capability when both models and datasets lie outside the training distribution, representing the ultimate test of Hypothesis~2. Using the 10 unknown models from Quadrant~II and 5 unknown datasets from Quadrant~III, this double-blind configuration reveals significant performance degradation, with mean $\tau_w = 0.48$, barely above random baseline and substantially below all other quadrants. Figure~\ref{fig:q4-unknown-both} illustrates the compounding effect of dual unfamiliarity, showing that performance degradation is not simply additive but multiplicative: the system cannot leverage familiar model representations to compensate for unknown datasets, nor vice versa. The high variance across model-dataset combinations ($\tau_w$ range: 0.32--0.61) suggests that specific architectural and domain mismatches exacerbate the generalization challenge. While Cross-Select remains operational where Model Spider would fail entirely (due to its inability to handle unknown datasets), the poor performance indicates that achieving robust zero-shot generalization requires either expanded training diversity or architectural innovations that better capture transferable compatibility patterns across both dimensions simultaneously.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{figures/unknown_models_unknown_datasets_breakdown}
+\caption{Performance breakdown for Quadrant IV's double-blind scenario with both unknown models and datasets. Mean $\tau_w = 0.48$ reflects the compounding generalization challenge when neither models nor datasets are familiar from training.}
+\label{fig:q4-unknown-both}
+\end{figure}
+
+\subsection{Generalization Comparison with Model Spider}
+\label{subsec:generalization-comparison}
+
+The generalization analysis reveals a fundamental architectural advantage of Cross-Select over Model Spider in handling unknown datasets, directly supporting Hypothesis~2. A critical distinction must be noted: the datasets labeled as "unknown" in Cross-Select's Quadrants~III and IV (Stanford Dogs, ChestX-ray8, EuroSAT, etc.) were actually \emph{known} datasets in Model Spider's evaluation framework—Model Spider's architecture fundamentally prohibits evaluation on datasets outside its training set due to its reliance on dataset-specific learned tokens rather than extractable features. This constraint means Model Spider cannot generalize to new datasets without complete retraining, whereas Cross-Select's CLIP-based dataset encoding enables zero-shot dataset transfer.
+
+For Quadrant~III scenarios (known models, unknown datasets), Cross-Select achieves $\tau_w = 0.78$ on genuinely unseen datasets, demonstrating a capability that Model Spider architecturally lacks. Even when comparing Cross-Select's unknown dataset performance to Model Spider's performance on those same datasets when they were included in Model Spider's training (reported $\tau_w \approx 0.68$), Cross-Select shows competitive or superior results despite operating in true zero-shot conditions. In contrast, Cross-Select's struggles with unknown models (Quadrant~II: $\tau_w = 0.64$; Quadrant~IV: $\tau_w = 0.48$) mirror Model Spider's complete inability to handle unknown datasets, highlighting that both systems have generalization limitations—but in complementary dimensions. Figure~\ref{fig:generalization-comparison} illustrates this asymmetry: Cross-Select excels where Model Spider cannot operate (unknown datasets) but shows degradation where Model Spider's learnable model tokens would maintain performance (if it could evaluate at all). This analysis confirms that Cross-Select's parameter-based model encoding and extractable dataset features provide distinct generalization advantages, particularly for the practically important scenario of recommending from a known model zoo to newly encountered datasets.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{figures/generalization_comparison_modelspider}
+\caption{Generalization comparison between Cross-Select and Model Spider across evaluation quadrants. Cross-Select demonstrates strong dataset generalization (Quadrant III: $\tau_w = 0.78$) in scenarios where Model Spider cannot operate due to architectural constraints requiring datasets to be in the training set. The complementary generalization limitations—Cross-Select struggles with unknown models while Model Spider cannot handle unknown datasets—highlight distinct architectural trade-offs.}
+\label{fig:generalization-comparison}
+\end{figure}

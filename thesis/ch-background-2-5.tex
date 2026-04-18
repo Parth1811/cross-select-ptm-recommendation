@@ -1,0 +1,13 @@
+\section{Transformer Architecture}
+\label{sec:transformer-architecture}
+
+The Transformer architecture represents a paradigm shift in sequence modeling, replacing recurrent and convolutional layers with attention mechanisms as the fundamental building block~\cite{lin2022survey}. At its core, the Transformer employs scaled dot-product attention, which computes attention weights by measuring the compatibility between queries $\mathbf{Q}$ and keys $\mathbf{K}$, then using these weights to aggregate values $\mathbf{V}$:
+\begin{equation}
+\text{Attention}(\mathbf{Q}, \mathbf{K}, \mathbf{V}) = \text{softmax}\left(\frac{\mathbf{Q}\mathbf{K}^T}{\sqrt{d_k}}\right)\mathbf{V},
+\label{eq:scaled-dot-product-attention}
+\end{equation}
+where $d_k$ is the dimensionality of the key vectors, and the scaling factor $1/\sqrt{d_k}$ prevents the dot products from growing excessively large~\cite{tunstall2022natural}. Multi-head attention extends this mechanism by projecting queries, keys, and values into multiple representation subspaces, allowing the model to jointly attend to information from different positions and representational aspects~\cite{khan2022transformers}. Each attention head learns distinct patterns, and their concatenated outputs are linearly transformed to produce the final representation.
+
+Transformer architectures manifest in three principal variants, each suited to different tasks~\cite{phuong2022formal}. \textbf{Encoder-only models} apply self-attention bidirectionally across the input sequence, making them ideal for representation learning and classification tasks. \textbf{Decoder-only models} employ causal self-attention with autoregressive masking, restricting each position to attend only to previous positions, thereby enabling sequential generation tasks such as language modeling~\cite{shoeybi2019megatron}. \textbf{Encoder-decoder models} combine both architectures, using self-attention within each component and introducing \textbf{cross-attention} in the decoder, where queries are derived from the decoder representations while keys and values originate from the encoder output~\cite{tay2022efficient}. This cross-attention mechanism enables the decoder to selectively attend to relevant portions of the encoded input, proving essential for tasks requiring alignment between two sequences, such as machine translation and sequence-to-sequence generation.
+
+The cross-attention mechanism forms the foundation for our PTM recommendation framework presented in Chapter~4, where model embeddings serve as queries and dataset embeddings provide the keys and values, enabling the system to learn which model representations are most compatible with specific dataset characteristics.

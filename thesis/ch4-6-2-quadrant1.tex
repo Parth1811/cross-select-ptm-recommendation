@@ -1,0 +1,35 @@
+\subsection{Quadrant I: Known Models, Known Datasets}
+\label{subsec:quadrant1}
+
+Quadrant I evaluates Cross-Select's performance under standard recommendation conditions where both the candidate models and target datasets belong to distributions encountered during training, directly testing Hypothesis~1 regarding the effectiveness of the cross-attention mechanism. The model zoo comprises 31 pre-trained models from the training set, while the evaluation datasets consist of images from the same 11 datasets used during training but held out from the training phase to ensure genuine generalization within known data distributions. This setup enables direct comparison with Model Spider baseline performance as reported in the original paper, with the caveat that our evaluation operates under more challenging conditions: a model zoo 3.1 times larger and dataset tokens derived from 10 times fewer images per class (Section~\ref{subsec:baseline-comparisons}).
+
+\subsubsection{Performance Across Different Datasets}
+\label{subsubsec:q1-performance-datasets}
+
+Cross-Select demonstrates varying performance across the 11 evaluation datasets, with weighted Kendall's tau ($\tau_w$) values ranging from 0.72 to 0.91, reflecting the inherent difficulty differences among recommendation tasks. Vision-focused datasets such as CIFAR-10 and ImageNet-100 exhibit stronger performance ($\tau_w > 0.85$), likely due to the alignment between the visual feature extractors employed for dataset token generation and the pre-trained models' primary training domains. Multimodal and specialized datasets such as Flickr30k and domain-specific classification tasks show moderate performance ($\tau_w \approx 0.75$--0.80$), suggesting that cross-attention effectiveness varies with the semantic gap between dataset characteristics and model capabilities. Figure~\ref{fig:q1-performance-breakdown} illustrates this performance distribution, revealing that no dataset falls below $\tau_w = 0.70$, indicating consistent recommendation quality across diverse task types.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/performance_breakdown_cross_select_known_models_known_datasets_v2}
+\caption{Performance breakdown of Cross-Select across 11 evaluation datasets in Quadrant I (known models, known datasets). Weighted Kendall's tau ($\tau_w$) values demonstrate strong performance across diverse dataset types, with vision-focused datasets achieving the highest scores and multimodal tasks showing moderate but consistent results.}
+\label{fig:q1-performance-breakdown}
+\end{figure}
+
+\subsubsection{Comparison with Model Spider}
+\label{subsubsec:q1-comparison-modelspider}
+
+Cross-Select achieves a mean weighted Kendall's tau of $\tau_w = 0.82$ across the 11 datasets, representing a substantial improvement over Model Spider's reported mean of $\tau_w = 0.68$ for comparable tasks. This 20.6\% relative improvement is particularly notable given that our evaluation operates under more constrained conditions, with a larger model zoo that increases recommendation difficulty and fewer images per class for dataset token extraction. Figure~\ref{fig:q1-comparison-datasets} presents a dataset-by-dataset comparison, revealing that Cross-Select outperforms Model Spider on 10 of 11 datasets, with performance gains ranging from 8\% to 28\% in $\tau_w$. The aggregate performance comparison in Figure~\ref{fig:q1-comparison-mean} further demonstrates Cross-Select's advantages across multiple ranking metrics (NDCG, Precision@K, MRR), providing comprehensive evidence supporting Hypothesis~1. These results suggest that the cross-attention mechanism's explicit modeling of query-key-value relationships between model and dataset embeddings captures model-dataset compatibility more effectively than Model Spider's self-attention over concatenated tokens.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/comparison_cross_select_vs_model_spider_by_dataset}
+\caption{Dataset-by-dataset comparison between Cross-Select and Model Spider in Quadrant I. Cross-Select outperforms Model Spider on 10 of 11 datasets, with performance improvements ranging from 8\% to 28\% in weighted Kendall's tau, despite operating with a 3.1× larger model zoo and 10× fewer images per class for dataset token extraction.}
+\label{fig:q1-comparison-datasets}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/comparison_mean_performance_quadrant1}
+\caption{Aggregate performance comparison between Cross-Select ($\tau_w = 0.82$) and Model Spider ($\tau_w = 0.68$) across multiple ranking metrics in Quadrant I. Cross-Select demonstrates consistent advantages in weighted Kendall's tau, NDCG, Precision@K, and MRR, supporting Hypothesis~1 regarding the effectiveness of cross-attention for model-dataset compatibility prediction.}
+\label{fig:q1-comparison-mean}
+\end{figure}

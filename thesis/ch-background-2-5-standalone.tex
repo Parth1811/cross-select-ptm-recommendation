@@ -1,0 +1,4 @@
+% Standalone Summary Paragraph - Transformer Architecture
+% Alternative concise version (~100 words)
+
+Transformers employ scaled dot-product attention as their fundamental operation, computing $\text{Attention}(\mathbf{Q}, \mathbf{K}, \mathbf{V}) = \text{softmax}(\mathbf{Q}\mathbf{K}^T/\sqrt{d_k})\mathbf{V}$ to measure compatibility between queries and keys before aggregating values~\cite{lin2022survey}. Multi-head attention extends this by learning multiple attention patterns in parallel~\cite{khan2022transformers}. Architecturally, decoder-only models use causal self-attention for generation, while encoder-decoder models employ cross-attention in the decoder—where queries come from decoder states and keys/values from encoder outputs—to align representations across sequences~\cite{tay2022efficient}. This cross-attention mechanism underpins our PTM recommendation framework (Chapter~4), enabling alignment between model and dataset embeddings.

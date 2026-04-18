@@ -1,0 +1,10 @@
+\subsection{Research Hypotheses}
+\label{subsec:research-hypotheses}
+
+We propose two hypotheses to evaluate the effectiveness of Cross-Select:
+
+\textbf{Hypothesis 1 (H1):} Cross-Select's cross-attention mechanism, which learns to align model embeddings (queries) with dataset embeddings (keys and values), will produce more accurate model-dataset compatibility predictions than baseline approaches including heuristic transferability metrics and self-attention-based methods such as Model Spider when evaluated on known model-dataset pairs.
+
+\textbf{Hypothesis 2 (H2):} Cross-Select's parameter-based model encoding strategy will enable effective generalization to previously unseen pre-trained models and datasets, outperforming Model Spider's learnable token approach which is restricted to a fixed model zoo.
+
+To test these hypotheses, we employ a four-quadrant evaluation framework that systematically varies the familiarity of models and datasets: Quadrant I (known models, known datasets) tests H1 by comparing Cross-Select against baselines under standard conditions, while Quadrants II--IV (introducing unseen models, unseen datasets, or both) specifically evaluate H2 by assessing generalization capabilities that distinguish parameter-based encoding from fixed token representations.

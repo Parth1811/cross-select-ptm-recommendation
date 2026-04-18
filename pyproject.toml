@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cross-select"
+version = "0.0.1"
+description = "Cross-Select: cross-attention pre-trained model recommender (thesis implementation)."
+requires-python = ">=3.10"
+authors = [{ name = "Parth Patil" }]
+dependencies = [
+    "torch",
+    "numpy",
+    "scipy",
+    "scikit-learn",
+    "hydra-core>=1.3",
+    "omegaconf>=2.3",
+    "wandb",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov", "ruff"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

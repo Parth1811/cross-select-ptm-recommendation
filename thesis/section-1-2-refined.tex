@@ -1,0 +1,64 @@
+\section{Motivation and Research Problem}
+\label{sec:motivation}
+
+Modern machine learning increasingly relies on reusing pre-trained models (PTMs), yet practitioners face three fundamental challenges when selecting an appropriate model for a downstream task. Figure~\ref{fig:ptm-problem-overview} illustrates the central challenge: given a model zoo, target dataset, and hardware constraints, practitioners must identify the best model without exhaustive fine-tuning of all candidates.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{figures/ptm_recommendation_problem_overview}
+\caption{Overview of the pre-trained model recommendation problem. Given a model zoo, target dataset, and hardware constraints, practitioners must identify the best model without exhaustive fine-tuning of all candidates. The current practice of empirically evaluating each model through fine-tuning is computationally prohibitive at scale.}
+\label{fig:ptm-problem-overview}
+\end{figure}
+
+First, the scale and diversity of today's model repositories make discovery itself difficult~\cite{wolf2020transformers,hfcommunity2024dataset,jajal2024interoperability,jiang2024peatmoss,ding2024ptmtorrent}. With millions of PTMs differing in architecture, size, modality, training objectives, and data sources, practitioners lack systematic guidance for identifying which models are even plausible candidates. The consequence is an overwhelming and largely unstructured search space. Figure~\ref{fig:ptm-growth} quantifies this challenge: Hugging Face alone hosts over 2.2 million models as of 2025, growing exponentially from approximately 20,000 models in 2019. This explosive growth, mirrored across other platforms such as Kaggle, renders manual model selection infeasible and necessitates automated recommendation systems.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/huggingface_kaggle_growth}
+\caption{Explosive growth of pre-trained model repositories. (a) Hugging Face hosts over 2.2 million models as of 2025, growing exponentially since 2019. (b) Kaggle public kernels show similar exponential growth, reflecting widespread PTM adoption. The scale of available models makes manual selection infeasible and motivates automated recommendation approaches.}
+\label{fig:ptm-growth}
+\end{figure}
+
+Second, evaluating candidate PTMs through fine-tuning is computationally prohibitive~\cite{schwartz2020green,wu2022sustainable}. Even tuning a single large model can require hours of GPU time, careful hyperparameter design, and repeated experimentation. Extending this process to tens or hundreds of models—often necessary for empirical selection—quickly becomes infeasible in practice. As a result, developers either overspend resources or settle for suboptimal models.
+
+Third, existing PTM selection practices and automated recommenders are misaligned with deployment constraints~\cite{zhang2023modelspider,meng2023foundation,liu2025ptmpicker}. They prioritize accuracy-based metrics while largely ignoring the hardware budgets under which the model must operate, including memory capacity, compute throughput, latency requirements, and energy limitations~\cite{schwartz2020green}. This omission is especially problematic in heterogeneous environments such as IoT deployments, where devices differ drastically in capability and many applications impose strict real-time or near-real-time constraints. Moreover, current recommenders often rely on fixed model zoos or shallow metadata and therefore cannot generalize to newly released PTMs or capture deeper relationships among dataset, model, and hardware~\cite{zhang2023modelspider}.
+
+\subsection{Problem Formulation}
+\label{subsec:problem-formulation}
+
+We formally define the pre-trained model recommendation problem as follows.
+
+\paragraph{Input.} The system receives three components:
+\begin{enumerate}
+    \item \textbf{Model zoo} $\mathcal{M} = \{m_1, m_2, \ldots, m_n\}$: A collection of $n$ pre-trained models, where each model $m_i$ is characterized by its architecture, learned parameters $\boldsymbol{\theta}_i$, and metadata (e.g., training dataset, modality, size).
+    \item \textbf{Target dataset} $\mathcal{D}$: A downstream task dataset comprising input-output pairs, from which representative samples or statistical features can be extracted without requiring full labels.
+    \item \textbf{Hardware constraints} $\mathcal{H}$ (optional): Deployment specifications including memory capacity, computational throughput, latency bounds, and energy budget, which may vary across heterogeneous devices.
+\end{enumerate}
+
+\paragraph{Output.} The system produces a ranked list of models $\pi = [m_{\pi_1}, m_{\pi_2}, \ldots, m_{\pi_n}]$, where $\pi$ is a permutation of $\{1, 2, \ldots, n\}$ such that models earlier in the ranking are predicted to achieve superior performance on dataset $\mathcal{D}$ when deployed under constraints $\mathcal{H}$. Formally, the ranking function $f: (\mathcal{M}, \mathcal{D}, \mathcal{H}) \rightarrow \pi$ should satisfy:
+\begin{equation}
+\text{Performance}(m_{\pi_i}, \mathcal{D}, \mathcal{H}) \geq \text{Performance}(m_{\pi_j}, \mathcal{D}, \mathcal{H}) \quad \forall i < j,
+\end{equation}
+where Performance measures task-specific accuracy, latency, or another relevant metric after deployment.
+
+\paragraph{Assumptions.} We assume the following:
+\begin{itemize}
+    \item \textbf{Access to model parameters}: Model weights $\boldsymbol{\theta}_i$ are publicly accessible for feature extraction, as is standard for open-source PTM repositories.
+    \item \textbf{Dataset samples available}: Representative samples from $\mathcal{D}$ can be obtained for embedding extraction, without requiring full fine-tuning or extensive annotation.
+    \item \textbf{No fine-tuning for ranking}: The recommendation system must predict suitability \emph{before} fine-tuning any candidate models, as fine-tuning all candidates is computationally prohibitive.
+    \item \textbf{Generalization to unseen models and datasets}: The system should generalize to models and datasets not encountered during training, accommodating the continuous release of new PTMs and diverse application domains.
+\end{itemize}
+
+\paragraph{Limitations of State-of-the-Art Approaches.} Existing automated recommendation methods exhibit critical shortcomings that prevent practical deployment at scale:
+
+\begin{itemize}
+    \item \textbf{Model Spider}~\cite{zhang2023modelspider}: Represents models through learnable token embeddings that are optimized during training to correspond to specific models in a fixed zoo. This design fundamentally prevents generalization to newly released models, as there exists no mechanism to derive embeddings for unseen architectures without retraining the entire system. Additionally, Model Spider employs dataset-specific learned tokens, precluding application to datasets outside the training distribution.
+
+    \item \textbf{EMMS}~\cite{meng2023foundation}: While utilizing foundation models as feature extractors improves efficiency, EMMS operates on metadata and shallow dataset statistics rather than learned parameter representations, limiting its ability to capture nuanced compatibility patterns between model architectures and data distributions.
+
+    \item \textbf{PTMPicker}~\cite{liu2025ptmpicker}: Focuses on developer-centric selection through code analysis and usage patterns but does not incorporate hardware constraints or deployment requirements, making it unsuitable for resource-constrained environments such as edge devices or IoT systems.
+
+    \item \textbf{Absence of hardware awareness}: None of the current state-of-the-art approaches integrate hardware specifications ($\mathcal{H}$) into the recommendation process, despite hardware constraints being critical determinants of deployment feasibility in heterogeneous systems.
+\end{itemize}
+
+These limitations highlight the absence of a unified, learning-based framework capable of predicting compatibility between dataset, model, and hardware before fine-tuning. This thesis investigates whether such a framework can be achieved through a data-driven approach that learns from large-scale PTM usage~\cite{jiang_empirical_2023}. The central research question is whether a deep learning model can reliably estimate PTM suitability in a way that reduces selection cost, improves generalizability, and enables more efficient model development across diverse deployment environments.

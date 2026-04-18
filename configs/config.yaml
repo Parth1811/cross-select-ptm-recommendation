@@ -1,0 +1,13 @@
+defaults:
+  - model: cross_select
+  - data: default
+  - trainer: default
+  - experiment: quadrant1
+  - _self_
+
+seed: 0
+device: cuda
+
+wandb:
+  project: cross-select
+  mode: online
