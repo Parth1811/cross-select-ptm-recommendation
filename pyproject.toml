@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "cross-select"
 version = "0.0.1"
 description = "Cross-Select: cross-attention pre-trained model recommender (thesis implementation)."
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 authors = [{ name = "Parth Patil" }]
 dependencies = [
     "torch",
