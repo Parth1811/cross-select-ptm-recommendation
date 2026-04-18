@@ -29,6 +29,9 @@ wandb/
 # Reference-only third-party code
 third_party/
 
+# Pre-computed tokens / embeddings (served from disk, not git)
+artifacts/
+
 # Editors
 .idea/
 .vscode/

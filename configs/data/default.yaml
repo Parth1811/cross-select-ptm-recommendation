@@ -1,5 +1,14 @@
-model_tokens_dir: ???
-dataset_tokens_dir: ???
-accuracy_matrix_path: ???
-model_ids_path: null
-dataset_ids_path: null
+model_tokens_dir: ${oc.env:PTM_MODEL_TOKENS_DIR,${hydra:runtime.cwd}/artifacts/extracted/parc_model_embeddings}
+dataset_root: ${oc.env:PTM_DATASET_ROOT,${hydra:runtime.cwd}/artifacts/extracted/datasets}
+gt_path: ${oc.env:PTM_GT_PATH,${hydra:runtime.cwd}/constants/ground_truth_rankings.json}
+
+# Folder names under dataset_root that should be used as datasets.
+dataset_ids:
+  - caltech_101
+
+# Folder-name -> GT-JSON-key mapping (defaults to identity if absent).
+gt_dataset_name_map:
+  caltech_101: caltech101
+
+missing_value: random_rank
+eval_split: validation
