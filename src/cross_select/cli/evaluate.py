@@ -45,7 +45,7 @@ def main(cfg: DictConfig) -> None:
             "degenerate to Q1. Override via +quadrant.held_out_models=[...]"
         )
 
-    model_builder = partial(build_model, cfg.model)
+    model_builder = partial(build_model, cfg.model, num_models=len(bank.model_ids))
     output_dir = Path(cfg.trainer.checkpoint_dir).parent / "quadrant_eval"
     results = run_all_quadrants(
         bank=bank,

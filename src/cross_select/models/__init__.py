@@ -4,12 +4,13 @@ from .cross_select import CrossSelect
 from .model_spider import ModelSpider
 
 
-def build_model(cfg) -> "torch.nn.Module":  # type: ignore[name-defined]
+def build_model(cfg, *, num_models: int | None = None) -> "torch.nn.Module":  # type: ignore[name-defined]
     """Build a model from a Hydra/OmegaConf config node.
 
     Expects ``cfg.name`` ("cross_select" or "model_spider") and architecture
-    hyperparameters. Keeps the construction path centralized so the CLI
-    doesn't need to know the class mapping.
+    hyperparameters. ``num_models`` is required only for ``model_spider``
+    since that variant owns a learnable ``(num_models, model_token_dim)``
+    embedding table.
     """
     kwargs = {
         "model_token_dim": cfg.model_token_dim,
@@ -22,7 +23,12 @@ def build_model(cfg) -> "torch.nn.Module":  # type: ignore[name-defined]
     if cfg.name == "cross_select":
         return CrossSelect(**kwargs)
     if cfg.name == "model_spider":
-        return ModelSpider(**kwargs)
+        if num_models is None:
+            raise ValueError(
+                "num_models is required for model_spider; pass it through "
+                "build_model(cfg, num_models=len(bank.model_ids))"
+            )
+        return ModelSpider(num_models=num_models, **kwargs)
     raise ValueError(f"Unknown model name: {cfg.name!r}")
 
 

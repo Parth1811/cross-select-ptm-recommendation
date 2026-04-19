@@ -46,12 +46,65 @@ def test_cross_select_backward():
     assert all(p.grad is not None for p in model.parameters() if p.requires_grad)
 
 
-def test_model_spider_forward_shape():
-    model = ModelSpider(
-        model_token_dim=16, dataset_token_dim=16, hidden_dim=32, num_heads=4, num_layers=1
+def _make_spider(num_models=8, M_dim=16, D_dim=16, H=32):
+    return ModelSpider(
+        num_models=num_models,
+        model_token_dim=M_dim,
+        dataset_token_dim=D_dim,
+        hidden_dim=H,
+        num_heads=4,
+        num_layers=1,
+        dropout=0.0,
     )
-    m, d = _toy_batch()
-    assert model(m, d).shape == (2, 5)
+
+
+def test_model_spider_has_learnable_model_token_table():
+    model = _make_spider(num_models=8, M_dim=16)
+    assert hasattr(model, "model_embeddings")
+    assert model.model_embeddings.shape == (8, 16)
+    # nn.Parameter is included in model.parameters() \u2192 trainable by default.
+    names = [n for n, _ in model.named_parameters()]
+    assert "model_embeddings" in names
+
+
+def test_model_spider_forward_shape():
+    model = _make_spider()
+    _, d = _toy_batch(B=2, C=7, Dd=16)
+    idx = torch.tensor([[0, 1, 2, 3, 4]] * 2)  # (B=2, M=5)
+    assert model(model_idx=idx, dataset_token=d).shape == (2, 5)
+
+
+def test_model_spider_broadcasts_1d_model_idx():
+    model = _make_spider()
+    _, d = _toy_batch(B=3, C=7, Dd=16)
+    idx = torch.tensor([0, 1, 2, 3, 4])  # 1D \u2192 broadcast across B
+    assert model(model_idx=idx, dataset_token=d).shape == (3, 5)
+
+
+def test_model_spider_different_idx_gives_different_output():
+    """If the token table weren't actually looked up, swapping indices
+    wouldn't change the output. Guards against accidental collapse."""
+    torch.manual_seed(0)
+    model = _make_spider(num_models=8)
+    model.eval()
+    _, d = _toy_batch(B=1, C=7, Dd=16)
+    out0 = model(model_idx=torch.tensor([[0, 1, 2]]), dataset_token=d)
+    out1 = model(model_idx=torch.tensor([[5, 6, 7]]), dataset_token=d)
+    assert not torch.allclose(out0, out1)
+
+
+def test_model_spider_backward_updates_token_table():
+    model = _make_spider(num_models=8)
+    _, d = _toy_batch(B=2, C=7, Dd=16)
+    idx = torch.tensor([[0, 1, 2, 3]] * 2)
+    out = model(model_idx=idx, dataset_token=d)
+    out.sum().backward()
+    assert model.model_embeddings.grad is not None
+    # Only the rows used should have non-zero gradient magnitude.
+    used = torch.tensor([0, 1, 2, 3])
+    unused = torch.tensor([4, 5, 6, 7])
+    assert model.model_embeddings.grad[used].abs().sum() > 0
+    assert torch.all(model.model_embeddings.grad[unused] == 0)
 
 
 def test_build_model_from_cfg():
@@ -69,4 +122,8 @@ def test_build_model_from_cfg():
     m = build_model(cfg)
     assert isinstance(m, CrossSelect)
     cfg.name = "model_spider"
-    assert isinstance(build_model(cfg), ModelSpider)
+    import pytest
+
+    with pytest.raises(ValueError):
+        build_model(cfg)  # num_models required
+    assert isinstance(build_model(cfg, num_models=8), ModelSpider)
