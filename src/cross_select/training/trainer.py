@@ -12,7 +12,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from ..data.dataset import ListwiseDataset, TokenBank
+from ..data.dataset import ListwiseDataset, SampleBatchGenerator, TokenBank
 from ..eval.metrics import all_metrics
 from ..losses.ranking import CompatibilityLoss
 from .splits import Split
@@ -32,18 +32,16 @@ def _listwise_collate(batch: list[dict]) -> list[dict]:
     return batch
 
 
-def make_loader(
+def make_eval_loader(
     bank: TokenBank,
     dataset_ids: list[str],
     split: str,
-    batch_size: int,
-    shuffle: bool,
 ) -> DataLoader:
     ds = ListwiseDataset(bank, dataset_ids=dataset_ids, split=split)
     return DataLoader(
         ds,
-        batch_size=batch_size,
-        shuffle=shuffle,
+        batch_size=1,
+        shuffle=False,
         num_workers=0,
         collate_fn=_listwise_collate,
     )
@@ -87,12 +85,14 @@ class Trainer:
         self.checkpoint_dir = Path(cfg.checkpoint_dir)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-        self.train_loader = make_loader(
-            bank,
-            split.train_dataset_ids,
-            split="train",
-            batch_size=cfg.batch_size,
-            shuffle=True,
+        self.sample_batcher = SampleBatchGenerator(
+            bank=bank,
+            dataset_ids=split.train_dataset_ids,
+            num_models_per_step=cfg.num_models_per_step,
+            num_datasets_per_step=cfg.num_datasets_per_step,
+            num_samples_per_dataset=cfg.num_samples_per_dataset,
+            seed=getattr(cfg, "seed", 0),
+            model_pool_idx=self.train_model_idx,
         )
 
     def _select_models(
@@ -101,16 +101,29 @@ class Trainer:
         sel = torch.tensor(idx, dtype=torch.long, device=model_tokens.device)
         return model_tokens.index_select(1, sel), target.index_select(1, sel)
 
-    def _forward_item(self, item: dict) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        """Run model + loss on one dataset item. Adds a leading batch axis so
-        the transformer's batch_first=True layout gets (1, M, D) / (1, C, D)."""
-        model_tokens = item["model_tokens"].unsqueeze(0).to(self.device)
-        dataset_token = item["dataset_token"].unsqueeze(0).to(self.device)
-        target = item["accuracy"].unsqueeze(0).to(self.device)
-        model_tokens, target = self._select_models(
-            model_tokens, target, self.train_model_idx
-        )
-        pred = self.model(model_tokens, dataset_token)
+    def _forward_step(
+        self, batch: dict
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        """Run model + loss on one sample-level step.
+
+        ``batch`` comes from ``SampleBatchGenerator.build_epoch()``:
+          dataset_tokens: (K, S, C_m, 512)
+          model_tokens:   (M_sub, 512)
+          accuracy:       (K, M_sub)
+        where K=num_datasets_per_step, S=num_samples_per_dataset,
+        M_sub=num_models_per_step.
+        """
+        d = batch["dataset_tokens"].to(self.device)  # (K, S, C, 512)
+        k, s, c, feat = d.shape
+        d_flat = d.reshape(k * s, c, feat)  # (K*S, C, 512)
+
+        m = batch["model_tokens"].to(self.device)  # (M_sub, 512)
+        m_bcast = m.unsqueeze(0).expand(k * s, -1, -1)  # (K*S, M_sub, 512)
+
+        pred = self.model(m_bcast, d_flat)  # (K*S, M_sub)
+        pred = pred.reshape(k, s, -1).mean(dim=1)  # (K, M_sub) after per-dataset aggregate
+
+        target = batch["accuracy"].to(self.device)  # (K, M_sub)
         return self.loss_fn(pred, target)
 
     def train(self) -> dict[str, float]:
@@ -119,37 +132,38 @@ class Trainer:
         last_log: dict[str, torch.Tensor] = {}
         for epoch in range(self.cfg.epochs):
             t0 = time.time()
-            for batch in self.train_loader:
-                # `batch` is a list of per-dataset dicts (see _listwise_collate).
-                # Accumulate the mean loss across the batch, then step once.
+            steps_this_epoch = self.sample_batcher.build_epoch()
+            for batch in steps_this_epoch:
                 self.optim.zero_grad(set_to_none=True)
-                batch_loss = torch.zeros((), device=self.device)
-                batch_parts: dict[str, float] = {}
-                for item in batch:
-                    loss, parts = self._forward_item(item)
-                    batch_loss = batch_loss + loss / len(batch)
-                    for k, v in parts.items():
-                        batch_parts[k] = batch_parts.get(k, 0.0) + float(v) / len(batch)
-                batch_loss.backward()
+                loss, parts = self._forward_step(batch)
+                loss.backward()
                 self.optim.step()
 
-                last_log = {k: torch.tensor(v) for k, v in batch_parts.items()}
+                last_log = parts
                 step += 1
                 if step % self.cfg.log_every == 0:
                     self._log(
-                        {f"train/{k}": v for k, v in batch_parts.items()}
+                        {f"train/{k}": float(v) for k, v in parts.items()}
                         | {"train/epoch": epoch, "train/step": step}
                     )
 
             if (epoch + 1) % self.cfg.eval_every == 0 or epoch == self.cfg.epochs - 1:
                 metrics = self.evaluate()
-                self._log({f"val/{k}": v for k, v in metrics.items() if k != "_per_dataset"} | {"val/epoch": epoch})
-                logger.info("epoch %d eval metrics: %s", epoch, {k: v for k, v in metrics.items() if k != "_per_dataset"})
+                self._log(
+                    {f"val/{k}": v for k, v in metrics.items() if k != "_per_dataset"}
+                    | {"val/epoch": epoch}
+                )
+                logger.info(
+                    "epoch %d eval metrics: %s",
+                    epoch,
+                    {k: v for k, v in metrics.items() if k != "_per_dataset"},
+                )
 
             logger.info(
-                "epoch %d done in %.1fs (last loss=%.4f)",
+                "epoch %d done in %.1fs steps=%d (last loss=%.4f)",
                 epoch,
                 time.time() - t0,
+                len(steps_this_epoch),
                 float(last_log.get("total", torch.tensor(0.0))),
             )
 
@@ -172,13 +186,7 @@ class Trainer:
         split = split if split is not None else getattr(self.cfg, "eval_split", "test")
         dataset_ids = dataset_ids if dataset_ids is not None else self.split.eval_dataset_ids
         model_idx = model_idx if model_idx is not None else self.eval_model_idx
-        loader = make_loader(
-            self.bank,
-            dataset_ids,
-            split=split,
-            batch_size=1,
-            shuffle=False,
-        )
+        loader = make_eval_loader(self.bank, dataset_ids, split=split)
 
         agg: dict[str, list[float]] = {}
         per_dataset: dict[str, dict[str, float]] = {}

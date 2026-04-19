@@ -62,6 +62,28 @@ def load_shard(path: str | Path) -> np.ndarray:
         return np.asarray(npz["features"], dtype=np.float32)
 
 
+def shard_row_count(path: str | Path) -> int:
+    """Return the number of sample rows in a shard (axis 0 of features)."""
+    with np.load(path, allow_pickle=True) as npz:
+        return int(npz["features"].shape[0])
+
+
+def shard_class_count(path: str | Path) -> int:
+    """Return the number of classes C in a shard (axis 1 of features)."""
+    with np.load(path, allow_pickle=True) as npz:
+        return int(npz["features"].shape[1])
+
+
+def load_shard_rows(path: str | Path, row_ids: list[int]) -> np.ndarray:
+    """Load selected row indices from one shard's ``features`` array.
+
+    Returns an array of shape ``(len(row_ids), C, 512)`` float32.
+    """
+    with np.load(path, allow_pickle=True) as npz:
+        feats = np.asarray(npz["features"], dtype=np.float32)
+    return feats[list(row_ids)]
+
+
 def sample_dataset_tokens(
     shards: list[Path],
     rng: random.Random | None = None,

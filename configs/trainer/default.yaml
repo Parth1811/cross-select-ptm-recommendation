@@ -1,4 +1,14 @@
 epochs: 100
+# Sample-level sampler knobs (see cross_select.data.dataset.SampleBatchGenerator).
+# Per step: pick num_datasets_per_step datasets, load one shard from each,
+# draw num_samples_per_dataset rows from that shard, subsample
+# num_models_per_step models (shared across all K*S forwards in the step).
+# Effective batch size of predictions fed to loss = num_datasets_per_step
+# (the S sample scores are mean-aggregated per dataset before loss).
+num_models_per_step: 16
+num_datasets_per_step: 4
+num_samples_per_dataset: 4
+# Kept for backward compatibility / eval; training does not use batch_size.
 batch_size: 16
 lr: 1.0e-4
 weight_decay: 0.0

@@ -25,7 +25,10 @@ from .tokens import (
     list_shards,
     load_ground_truth,
     load_model_tokens,
+    load_shard_rows,
     sample_dataset_tokens,
+    shard_class_count,
+    shard_row_count,
 )
 
 
@@ -123,6 +126,176 @@ class ListwiseDataset(Dataset):
             "dataset_token": torch.from_numpy(feats),  # (C, D_d)
             "model_tokens": torch.from_numpy(self.bank.model_tokens),  # (M, D_m)
             "accuracy": torch.from_numpy(self.bank.accuracy[:, col]),  # (M,)
+        }
+
+
+class SampleBatchGenerator:
+    """Sample-level training batcher.
+
+    Per step: subsample ``num_models_per_step`` models (shared across the
+    step), pick ``num_datasets_per_step`` datasets, and draw
+    ``num_samples_per_dataset`` rows from a single shard for each.
+
+    Per epoch: enumerate every ``(dataset, shard, row)`` triple, shuffle
+    the implied ``shard-chunks`` (groups of ``num_samples_per_dataset``
+    consecutive rows in one shard), then greedily combine chunks from
+    distinct datasets into training steps. Any tail that can't form a
+    full multi-dataset step is dropped for that epoch.
+    """
+
+    def __init__(
+        self,
+        bank: TokenBank,
+        dataset_ids: list[str],
+        num_models_per_step: int = 16,
+        num_datasets_per_step: int = 4,
+        num_samples_per_dataset: int = 4,
+        seed: int = 0,
+        model_pool_idx: list[int] | None = None,
+    ) -> None:
+        if num_datasets_per_step > len(dataset_ids):
+            raise ValueError(
+                f"num_datasets_per_step={num_datasets_per_step} exceeds "
+                f"available training datasets ({len(dataset_ids)})"
+            )
+        pool = (
+            list(model_pool_idx)
+            if model_pool_idx is not None
+            else list(range(len(bank.model_ids)))
+        )
+        if num_models_per_step > len(pool):
+            raise ValueError(
+                f"num_models_per_step={num_models_per_step} exceeds "
+                f"model pool size ({len(pool)})"
+            )
+
+        self.bank = bank
+        self.dataset_ids = list(dataset_ids)
+        self.num_models_per_step = num_models_per_step
+        self.num_datasets_per_step = num_datasets_per_step
+        self.num_samples_per_dataset = num_samples_per_dataset
+        self.model_pool_idx = pool
+        self.rng = random.Random(seed)
+
+        # Index shards + sizes up front so epoch construction is fast.
+        self._shards: dict[str, list[Path]] = {
+            d: bank.train_shards(d) for d in self.dataset_ids
+        }
+        self._shard_rows: dict[Path, int] = {
+            s: shard_row_count(s) for d in self.dataset_ids for s in self._shards[d]
+        }
+        self._shard_classes: dict[Path, int] = {
+            s: shard_class_count(s) for d in self.dataset_ids for s in self._shards[d]
+        }
+        self._dataset_col = {d: bank.dataset_ids.index(d) for d in self.dataset_ids}
+
+    # ---- reporting helpers (used by dry_run) --------------------------------
+
+    def shards_per_dataset(self) -> dict[str, int]:
+        return {d: len(s) for d, s in self._shards.items()}
+
+    def rows_per_dataset(self) -> dict[str, int]:
+        return {
+            d: sum(self._shard_rows[s] for s in self._shards[d])
+            for d in self.dataset_ids
+        }
+
+    def total_rows(self) -> int:
+        return sum(self.rows_per_dataset().values())
+
+    def chunks_per_dataset(self) -> dict[str, int]:
+        """How many ``num_samples_per_dataset``-row groups each dataset yields."""
+        s = self.num_samples_per_dataset
+        return {
+            d: sum(self._shard_rows[sh] // s for sh in self._shards[d])
+            for d in self.dataset_ids
+        }
+
+    def total_chunks(self) -> int:
+        return sum(self.chunks_per_dataset().values())
+
+    def steps_per_epoch(self) -> int:
+        # We need num_datasets_per_step distinct datasets per step, so we
+        # can make at most as many steps as the smallest-adjusted pool
+        # allows under the greedy grouping below. The simpler but tight
+        # upper bound is floor(total_chunks / num_datasets_per_step); the
+        # greedy builder may emit fewer if one dataset dominates.
+        return self.total_chunks() // self.num_datasets_per_step
+
+    # ---- epoch construction -------------------------------------------------
+
+    def _build_shard_chunks(self) -> dict[str, list[tuple[Path, list[int]]]]:
+        """For each dataset, a shuffled list of ``(shard_path, [row_ids])``
+        groups of ``num_samples_per_dataset`` rows.
+        """
+        s = self.num_samples_per_dataset
+        out: dict[str, list[tuple[Path, list[int]]]] = {}
+        for d in self.dataset_ids:
+            chunks: list[tuple[Path, list[int]]] = []
+            for shard in self._shards[d]:
+                n_rows = self._shard_rows[shard]
+                rows = list(range(n_rows))
+                self.rng.shuffle(rows)
+                for start in range(0, n_rows - s + 1, s):
+                    chunks.append((shard, rows[start : start + s]))
+            self.rng.shuffle(chunks)
+            out[d] = chunks
+        return out
+
+    def build_epoch(self) -> list[dict]:
+        """Return a list of step dicts. Each step has distinct datasets."""
+        k = self.num_datasets_per_step
+        pool = self._build_shard_chunks()
+        steps: list[dict] = []
+        # Greedy: at each iteration pick the k datasets with the most
+        # remaining chunks. Stop when fewer than k datasets have any left.
+        while sum(1 for d in pool if pool[d]) >= k:
+            picks = sorted(
+                (d for d in self.dataset_ids if pool[d]),
+                key=lambda d: len(pool[d]),
+                reverse=True,
+            )[:k]
+            # Shuffle the picks so the step's dataset ordering is not
+            # biased by chunk count.
+            self.rng.shuffle(picks)
+            step = self._assemble_step(picks, pool)
+            steps.append(step)
+        return steps
+
+    def _assemble_step(
+        self,
+        dataset_picks: list[str],
+        pool: dict[str, list[tuple[Path, list[int]]]],
+    ) -> dict:
+        d_tokens = []
+        accuracies = []
+        shards_used: list[Path] = []
+        for d in dataset_picks:
+            shard, rows = pool[d].pop()
+            shards_used.append(shard)
+            feats = load_shard_rows(shard, rows)  # (s, C, 512)
+            d_tokens.append(feats)
+            accuracies.append(self.bank.accuracy[:, self._dataset_col[d]])
+
+        c_m = min(self._shard_classes[sh] for sh in shards_used)
+        d_stack = np.stack(
+            [feats[:, :c_m, :] for feats in d_tokens], axis=0
+        )  # (k, s, C_m, 512)
+
+        # Same num_models_per_step model indices for all datasets this step,
+        # drawn from the configured model pool (by default the full zoo, or
+        # split.train_model_ids when a quadrant holds out models).
+        model_idx = self.rng.sample(self.model_pool_idx, self.num_models_per_step)
+        model_tokens = self.bank.model_tokens[model_idx]  # (M_sub, 512)
+        acc = np.stack(accuracies, axis=0)[:, model_idx]  # (k, M_sub)
+
+        return {
+            "dataset_ids": list(dataset_picks),
+            "dataset_tokens": torch.from_numpy(d_stack),  # (k, s, C_m, 512)
+            "model_tokens": torch.from_numpy(model_tokens),  # (M_sub, 512)
+            "model_idx": torch.tensor(model_idx, dtype=torch.long),  # (M_sub,)
+            "accuracy": torch.from_numpy(acc),  # (k, M_sub)
+            "C_m": int(c_m),
         }
 
 

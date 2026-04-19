@@ -49,6 +49,10 @@ def trainer(tmp_path_factory):
         {
             "epochs": 30,
             "batch_size": 1,
+            # Local data only has caltech_101 materialized, so K=1.
+            "num_models_per_step": 16,
+            "num_datasets_per_step": 1,
+            "num_samples_per_dataset": 4,
             "lr": 1e-3,
             "weight_decay": 0.0,
             "optimizer": "adamw",
