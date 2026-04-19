@@ -72,11 +72,14 @@ def main(cfg: DictConfig) -> None:
     device = _pick_device(cfg.device)
     wandb_run = _init_wandb(cfg)
 
+    trainer_cfg = OmegaConf.create(OmegaConf.to_container(cfg.trainer, resolve=True))
+    trainer_cfg.eval_split = cfg.data.eval_split
+
     trainer = Trainer(
         model=model,
         bank=bank,
         split=split,
-        cfg=cfg.trainer,
+        cfg=trainer_cfg,
         device=device,
         wandb_run=wandb_run,
     )

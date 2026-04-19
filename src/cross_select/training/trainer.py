@@ -26,6 +26,12 @@ def _index_of(items: list[str], subset: list[str]) -> list[int]:
     return [idx[s] for s in subset]
 
 
+def _listwise_collate(batch: list[dict]) -> list[dict]:
+    """Return the batch as a list. Datasets have different class counts C, so
+    we can't stack dataset_token (C, D) along a new batch axis."""
+    return batch
+
+
 def make_loader(
     bank: TokenBank,
     dataset_ids: list[str],
@@ -34,7 +40,13 @@ def make_loader(
     shuffle: bool,
 ) -> DataLoader:
     ds = ListwiseDataset(bank, dataset_ids=dataset_ids, split=split)
-    return DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=0)
+    return DataLoader(
+        ds,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=0,
+        collate_fn=_listwise_collate,
+    )
 
 
 class Trainer:
@@ -83,11 +95,23 @@ class Trainer:
             shuffle=True,
         )
 
-    def _select_models_from_batch(
+    def _select_models(
         self, model_tokens: torch.Tensor, target: torch.Tensor, idx: list[int]
     ) -> tuple[torch.Tensor, torch.Tensor]:
         sel = torch.tensor(idx, dtype=torch.long, device=model_tokens.device)
         return model_tokens.index_select(1, sel), target.index_select(1, sel)
+
+    def _forward_item(self, item: dict) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        """Run model + loss on one dataset item. Adds a leading batch axis so
+        the transformer's batch_first=True layout gets (1, M, D) / (1, C, D)."""
+        model_tokens = item["model_tokens"].unsqueeze(0).to(self.device)
+        dataset_token = item["dataset_token"].unsqueeze(0).to(self.device)
+        target = item["accuracy"].unsqueeze(0).to(self.device)
+        model_tokens, target = self._select_models(
+            model_tokens, target, self.train_model_idx
+        )
+        pred = self.model(model_tokens, dataset_token)
+        return self.loss_fn(pred, target)
 
     def train(self) -> dict[str, float]:
         self.model.train()
@@ -96,32 +120,31 @@ class Trainer:
         for epoch in range(self.cfg.epochs):
             t0 = time.time()
             for batch in self.train_loader:
-                model_tokens = batch["model_tokens"].to(self.device)
-                dataset_token = batch["dataset_token"].to(self.device)
-                target = batch["accuracy"].to(self.device)
-
-                model_tokens, target = self._select_models_from_batch(
-                    model_tokens, target, self.train_model_idx
-                )
-                pred = self.model(model_tokens, dataset_token)
-                loss, parts = self.loss_fn(pred, target)
-
+                # `batch` is a list of per-dataset dicts (see _listwise_collate).
+                # Accumulate the mean loss across the batch, then step once.
                 self.optim.zero_grad(set_to_none=True)
-                loss.backward()
+                batch_loss = torch.zeros((), device=self.device)
+                batch_parts: dict[str, float] = {}
+                for item in batch:
+                    loss, parts = self._forward_item(item)
+                    batch_loss = batch_loss + loss / len(batch)
+                    for k, v in parts.items():
+                        batch_parts[k] = batch_parts.get(k, 0.0) + float(v) / len(batch)
+                batch_loss.backward()
                 self.optim.step()
 
-                last_log = parts
+                last_log = {k: torch.tensor(v) for k, v in batch_parts.items()}
                 step += 1
                 if step % self.cfg.log_every == 0:
                     self._log(
-                        {f"train/{k}": float(v) for k, v in parts.items()}
+                        {f"train/{k}": v for k, v in batch_parts.items()}
                         | {"train/epoch": epoch, "train/step": step}
                     )
 
             if (epoch + 1) % self.cfg.eval_every == 0 or epoch == self.cfg.epochs - 1:
-                metrics = self.evaluate(split="validation")
-                self._log({f"val/{k}": v for k, v in metrics.items()} | {"val/epoch": epoch})
-                logger.info("epoch %d val metrics: %s", epoch, metrics)
+                metrics = self.evaluate()
+                self._log({f"val/{k}": v for k, v in metrics.items() if k != "_per_dataset"} | {"val/epoch": epoch})
+                logger.info("epoch %d eval metrics: %s", epoch, {k: v for k, v in metrics.items() if k != "_per_dataset"})
 
             logger.info(
                 "epoch %d done in %.1fs (last loss=%.4f)",
@@ -130,7 +153,7 @@ class Trainer:
                 float(last_log.get("total", torch.tensor(0.0))),
             )
 
-        final = self.evaluate(split="validation")
+        final = self.evaluate()
         ckpt = self.checkpoint_dir / "last.pt"
         torch.save(
             {"model_state": self.model.state_dict(), "metrics": final}, ckpt
@@ -141,11 +164,12 @@ class Trainer:
     @torch.no_grad()
     def evaluate(
         self,
-        split: str = "validation",
+        split: str | None = None,
         dataset_ids: list[str] | None = None,
         model_idx: list[int] | None = None,
     ) -> dict[str, float]:
         self.model.eval()
+        split = split if split is not None else getattr(self.cfg, "eval_split", "test")
         dataset_ids = dataset_ids if dataset_ids is not None else self.split.eval_dataset_ids
         model_idx = model_idx if model_idx is not None else self.eval_model_idx
         loader = make_loader(
@@ -159,18 +183,19 @@ class Trainer:
         agg: dict[str, list[float]] = {}
         per_dataset: dict[str, dict[str, float]] = {}
         for batch in loader:
-            model_tokens = batch["model_tokens"].to(self.device)
-            dataset_token = batch["dataset_token"].to(self.device)
-            target = batch["accuracy"].to(self.device)
-            model_tokens, target = self._select_models_from_batch(
+            # batch is a list with one dict (batch_size=1).
+            item = batch[0]
+            model_tokens = item["model_tokens"].unsqueeze(0).to(self.device)
+            dataset_token = item["dataset_token"].unsqueeze(0).to(self.device)
+            target = item["accuracy"].unsqueeze(0).to(self.device)
+            model_tokens, target = self._select_models(
                 model_tokens, target, model_idx
             )
             pred = self.model(model_tokens, dataset_token)
             p = pred.squeeze(0).cpu().numpy()
             t = target.squeeze(0).cpu().numpy()
             m = all_metrics(p, t)
-            dsid = batch["dataset_id"][0]
-            per_dataset[dsid] = m
+            per_dataset[item["dataset_id"]] = m
             for k, v in m.items():
                 agg.setdefault(k, []).append(v)
 
