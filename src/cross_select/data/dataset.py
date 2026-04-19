@@ -215,12 +215,10 @@ class SampleBatchGenerator:
         return sum(self.chunks_per_dataset().values())
 
     def steps_per_epoch(self) -> int:
-        # We need num_datasets_per_step distinct datasets per step, so we
-        # can make at most as many steps as the smallest-adjusted pool
-        # allows under the greedy grouping below. The simpler but tight
-        # upper bound is floor(total_chunks / num_datasets_per_step); the
-        # greedy builder may emit fewer if one dataset dominates.
-        return self.total_chunks() // self.num_datasets_per_step
+        # "Upsample small datasets" policy: the largest dataset is the
+        # driver and appears in every step; its chunk count bounds the
+        # epoch. Smaller datasets cycle (reshuffled) to keep up.
+        return max(self.chunks_per_dataset().values())
 
     # ---- epoch construction -------------------------------------------------
 
@@ -243,35 +241,63 @@ class SampleBatchGenerator:
         return out
 
     def build_epoch(self) -> list[dict]:
-        """Return a list of step dicts. Each step has distinct datasets."""
+        """Yield one training step per chunk of the *largest* dataset.
+
+        The largest dataset advances through its chunks exactly once, giving
+        every sample row exactly one gradient update for that dataset per
+        epoch. Smaller datasets cycle (reshuffle when exhausted) so they
+        keep appearing as partners \u2014 this is the "upsample small datasets"
+        policy. Result: steps_per_epoch == chunks(largest dataset).
+        """
         k = self.num_datasets_per_step
         pool = self._build_shard_chunks()
+
+        # Rank datasets by original chunk count (descending). The #1 is the
+        # "driver"; it's always included in every step. The remaining k-1
+        # slots are filled by sampling uniformly without replacement from
+        # the rest, each step picking a fresh subset.
+        order = sorted(self.dataset_ids, key=lambda d: len(pool[d]), reverse=True)
+        driver = order[0]
+        partners_pool = order[1:]
+        driver_chunks = pool[driver]
+
+        # Per-partner cursor into its chunk list; we reshuffle on wrap.
+        cursors = {d: 0 for d in partners_pool}
+
         steps: list[dict] = []
-        # Greedy: at each iteration pick the k datasets with the most
-        # remaining chunks. Stop when fewer than k datasets have any left.
-        while sum(1 for d in pool if pool[d]) >= k:
-            picks = sorted(
-                (d for d in self.dataset_ids if pool[d]),
-                key=lambda d: len(pool[d]),
-                reverse=True,
-            )[:k]
-            # Shuffle the picks so the step's dataset ordering is not
-            # biased by chunk count.
+        for i in range(len(driver_chunks)):
+            picks = [driver]
+            # Pick k-1 distinct partners for this step.
+            chosen = self.rng.sample(partners_pool, k - 1) if k > 1 else []
+            picks.extend(chosen)
             self.rng.shuffle(picks)
-            step = self._assemble_step(picks, pool)
+
+            # For the driver, pop one chunk (advance the real pointer).
+            # For partners, consume their current cursor; on wrap, reshuffle.
+            selected_chunks: dict[str, tuple[Path, list[int]]] = {}
+            selected_chunks[driver] = driver_chunks[i]
+            for d in chosen:
+                if cursors[d] >= len(pool[d]):
+                    # Exhausted \u2014 reshuffle and reset cursor so we keep cycling.
+                    self.rng.shuffle(pool[d])
+                    cursors[d] = 0
+                selected_chunks[d] = pool[d][cursors[d]]
+                cursors[d] += 1
+
+            step = self._assemble_step(picks, selected_chunks)
             steps.append(step)
         return steps
 
     def _assemble_step(
         self,
         dataset_picks: list[str],
-        pool: dict[str, list[tuple[Path, list[int]]]],
+        selected_chunks: dict[str, tuple[Path, list[int]]],
     ) -> dict:
         d_tokens = []
         accuracies = []
         shards_used: list[Path] = []
         for d in dataset_picks:
-            shard, rows = pool[d].pop()
+            shard, rows = selected_chunks[d]
             shards_used.append(shard)
             feats = load_shard_rows(shard, rows)  # (s, C, 512)
             d_tokens.append(feats)

@@ -64,8 +64,13 @@ def main(cfg: DictConfig) -> None:
     total_rows = gen.total_rows()
     total_chunks = gen.total_chunks()
     steps_per_epoch = gen.steps_per_epoch()
-    rows_consumed_per_epoch = steps_per_epoch * effective_preds
-    dropped_rows = total_rows - rows_consumed_per_epoch
+    # Driver = dataset with the most chunks; seen exactly once per epoch.
+    driver = max(chunks_per_ds, key=chunks_per_ds.get)
+    # Per-dataset appearances per epoch: driver in every step (+ K-1
+    # partners drawn uniformly from the other 6 each step).
+    partners = [d for d in gen.dataset_ids if d != driver]
+    partner_appearance_prob = (K - 1) / len(partners) if partners else 0.0
+    expected_partner_appearances = steps_per_epoch * partner_appearance_prob
     total_steps = cfg.trainer.epochs * steps_per_epoch
     total_sample_draws = total_steps * effective_preds
 
@@ -96,10 +101,16 @@ def main(cfg: DictConfig) -> None:
         )
     print(f"  {'TOTAL':22s} rows={total_rows:6d}  chunks={total_chunks:5d}")
     print()
-    print("per-epoch / per-run totals:")
-    print(f"  steps per epoch:                    {steps_per_epoch}")
-    print(f"  rows consumed per epoch:            {rows_consumed_per_epoch}")
-    print(f"  rows dropped per epoch (tail):      {dropped_rows}")
+    print("per-epoch / per-run totals (upsample-small policy):")
+    print(f"  driver dataset (one-pass each epoch): {driver} ({chunks_per_ds[driver]} chunks)")
+    print(f"  steps per epoch:                      {steps_per_epoch}")
+    print(f"  driver sample rows/epoch (one pass):  {chunks_per_ds[driver] * S}")
+    for d in partners:
+        cycles = expected_partner_appearances / chunks_per_ds[d] if chunks_per_ds[d] else 0
+        print(
+            f"  expected appearances of {d:18s} ~= {expected_partner_appearances:7.1f} "
+            f"steps/epoch  ({cycles:.1f} full cycles through its chunks)"
+        )
     print(f"  epochs:                             {cfg.trainer.epochs}")
     print(f"  total optimizer steps:              {total_steps}")
     print(f"  total sample-row draws:             {total_sample_draws}")

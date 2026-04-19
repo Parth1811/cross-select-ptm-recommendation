@@ -54,31 +54,93 @@ def test_reporting_numbers_match_data(bank):
     assert gen.chunks_per_dataset() == {"caltech_101": 24}
     assert gen.total_rows() == 96
     assert gen.total_chunks() == 24
-    # K=1 so steps/epoch == chunks.
+    # Driver = caltech_101 (only dataset), so steps/epoch = its chunk count.
     assert gen.steps_per_epoch() == 24
 
 
-def test_shapes_and_coverage(bank):
+def test_shapes_and_driver_coverage(bank):
+    """With K=1 and one dataset, the driver is caltech_101 and every
+    chunk is consumed exactly once per epoch (upsample-small policy
+    degenerates to single-pass when there is only one dataset).
+    """
     K, S, M = 1, 4, 16
     gen = _make_gen(bank, K=K, S=S, M_sub=M)
     steps = gen.build_epoch()
     assert len(steps) == 24
 
-    # Every step has the right shapes.
     for step in steps:
-        assert step["dataset_tokens"].shape == (K, S, 102, 512)  # caltech_101: C=102
+        assert step["dataset_tokens"].shape == (K, S, 102, 512)
         assert step["dataset_tokens"].dtype == torch.float32
         assert step["model_tokens"].shape == (M, 512)
         assert step["model_idx"].shape == (M,)
         assert step["accuracy"].shape == (K, M)
         assert step["C_m"] == 102
 
-    # Sample coverage: across the epoch, every (shard, row) should appear
-    # exactly S times (once per chunk placement across the epoch, summed
-    # along axis 0 of the shard's features). With K=1, 24 chunks each
-    # consuming 4 rows = 96 consumptions = every row exactly once.
-    total_rows = sum(step["dataset_tokens"].shape[0] * step["dataset_tokens"].shape[1] for step in steps)
-    assert total_rows == 96
+    # 24 steps * 4 rows = 96 = every row exactly once.
+    total_rows_consumed = sum(
+        step["dataset_tokens"].shape[0] * step["dataset_tokens"].shape[1]
+        for step in steps
+    )
+    assert total_rows_consumed == 96
+
+
+def test_driver_appears_in_every_step_synthetic(monkeypatch, bank):
+    """Construct a two-dataset scenario by aliasing caltech_101's shards
+    under a second dataset name, and verify the 'driver appears in every
+    step' invariant plus the cycle-on-exhaustion property.
+    """
+    # Create two "virtual" datasets that both map to caltech_101 shards.
+    # big_ds will be the driver; small_ds pretends to have fewer chunks
+    # by limiting its visible shards to 2 (32 rows, 8 chunks).
+    big_name = "caltech_101"  # 6 shards, 24 chunks
+    small_name = "caltech_101_small"  # aliased
+
+    from cross_select.data.tokens import list_shards as real_list_shards
+
+    real_caltech = real_list_shards(bank.dataset_root, big_name, "train")
+    # Fake the shards accessor and caching for the second name.
+    # We'll monkeypatch TokenBank.train_shards to recognise the alias.
+    orig = bank.train_shards
+
+    def fake_train_shards(d):
+        if d == small_name:
+            return real_caltech[:2]  # 2 shards \u2192 8 chunks
+        return orig(d)
+
+    monkeypatch.setattr(bank, "train_shards", fake_train_shards)
+
+    # Also need to pretend dataset_ids/bank columns exist for small_name.
+    # The generator uses self._dataset_col[d] from bank.dataset_ids; extend it.
+    monkeypatch.setattr(bank, "dataset_ids", bank.dataset_ids + [small_name])
+    import numpy as np
+
+    monkeypatch.setattr(
+        bank,
+        "accuracy",
+        np.concatenate([bank.accuracy, bank.accuracy[:, :1]], axis=1),
+    )
+
+    from cross_select.data.dataset import SampleBatchGenerator
+
+    gen = SampleBatchGenerator(
+        bank=bank,
+        dataset_ids=[big_name, small_name],
+        num_models_per_step=4,
+        num_datasets_per_step=2,
+        num_samples_per_dataset=4,
+        seed=0,
+    )
+    assert gen.steps_per_epoch() == 24  # driven by caltech_101 (24 chunks)
+    steps = gen.build_epoch()
+    assert len(steps) == 24
+
+    # Every step must contain the driver (big_name) exactly once.
+    driver_presence = sum(1 for step in steps if big_name in step["dataset_ids"])
+    assert driver_presence == 24
+    # small_name should appear 24 times (K-1=1 partner per step),
+    # cycling \u2248 3\u00d7 through its 8 chunks.
+    partner_presence = sum(1 for step in steps if small_name in step["dataset_ids"])
+    assert partner_presence == 24
 
 
 def test_model_subsampling_uses_pool(bank):
