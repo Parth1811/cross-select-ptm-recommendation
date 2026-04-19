@@ -11,3 +11,16 @@ device: cuda
 wandb:
   project: cross-select
   mode: online
+  # Root dir for wandb's run metadata; the actual per-run subdir is
+  # ${dir}/wandb/run-<timestamp>-<id>/ (wandb appends "wandb/" itself).
+  dir: artifacts
+
+hydra:
+  # Keep Hydra's per-run and per-sweep directories under artifacts/ so
+  # the top-level repo stays clean. Matches .gitignore which ignores
+  # artifacts/ wholesale.
+  run:
+    dir: artifacts/outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: artifacts/multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}

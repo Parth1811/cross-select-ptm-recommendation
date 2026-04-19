@@ -18,9 +18,12 @@ dist/
 venv/
 env/
 
-# Experiment outputs
+# Experiment outputs (all under artifacts/ now; artifacts/ is also
+# ignored wholesale below). Kept as belt-and-suspenders for stragglers
+# if a script ever writes to the repo root instead of artifacts/.
 experiments/
 outputs/
+multirun/
 wandb/
 .hydra/
 *.ckpt

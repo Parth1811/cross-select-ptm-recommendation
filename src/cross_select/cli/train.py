@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import hydra
 import torch
@@ -32,9 +33,13 @@ def _init_wandb(cfg: DictConfig):
     except ImportError:
         logger.warning("wandb not installed; skipping logging")
         return None
+    wandb_dir = cfg.wandb.get("dir", None)
+    if wandb_dir is not None:
+        Path(wandb_dir).mkdir(parents=True, exist_ok=True)
     return wandb.init(
         project=cfg.wandb.project,
         mode=cfg.wandb.mode,
+        dir=wandb_dir,
         config=OmegaConf.to_container(cfg, resolve=True),
     )
 
