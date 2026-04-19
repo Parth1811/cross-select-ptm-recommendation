@@ -2,18 +2,20 @@ model_tokens_dir: ${oc.env:PTM_MODEL_TOKENS_DIR,${hydra:runtime.cwd}/artifacts/e
 dataset_root: ${oc.env:PTM_DATASET_ROOT,${hydra:runtime.cwd}/artifacts/extracted/datasets}
 gt_path: ${oc.env:PTM_GT_PATH,${hydra:runtime.cwd}/constants/ground_truth_rankings.json}
 
-# Folder names under dataset_root that should be used as datasets.
-# Outer GT-JSON keys match folder names (caltech_101, cifar_10, ...),
-# so no name map is needed \u2014 identity is used everywhere.
-# Only datasets whose CLIP shards are already materialized under
-# dataset_root should be listed here. Still to materialize on gautschi:
-#   cub200, voc2007 (raw jpgs missing in artifacts/data \u2014 re-run unzip),
-#   stanford_pets (raw data not shipped; will be downloaded separately).
+# All 7 PARC target datasets. Outer GT-JSON keys match these folder names,
+# so no name map is needed.
 dataset_ids:
   - caltech_101
   - cifar_10
+  - cub200
+  - nabird
+  - oxford_pets
+  - stanford_dogs
+  - voc2007
 
 gt_dataset_name_map: {}
 
 missing_value: random_rank
-eval_split: validation
+# Only caltech_101 and cifar_10 have validation shards; the other five have
+# train + test only. Default to test so eval works uniformly across datasets.
+eval_split: test
