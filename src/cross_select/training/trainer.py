@@ -17,6 +17,7 @@ from tqdm.auto import tqdm
 from ..data.dataset import ListwiseDataset, SampleBatchGenerator, TokenBank
 from ..eval.metrics import all_metrics
 from ..losses.ranking import CompatibilityLoss
+from ..models import ModelSpider
 from .splits import Split
 
 
@@ -119,10 +120,17 @@ class Trainer:
         k, s, c, feat = d.shape
         d_flat = d.reshape(k * s, c, feat)  # (K*S, C, 512)
 
-        m = batch["model_tokens"].to(self.device)  # (M_sub, 512)
-        m_bcast = m.unsqueeze(0).expand(k * s, -1, -1)  # (K*S, M_sub, 512)
+        if isinstance(self.model, ModelSpider):
+            # Learnable-token path: pass the (M_sub,) index tensor and let
+            # the model look up rows from its own nn.Parameter table.
+            m_idx = batch["model_idx"].to(self.device)  # (M_sub,)
+            m_idx_b = m_idx.unsqueeze(0).expand(k * s, -1)  # (K*S, M_sub)
+            pred = self.model(model_idx=m_idx_b, dataset_token=d_flat)
+        else:
+            m = batch["model_tokens"].to(self.device)  # (M_sub, 512)
+            m_bcast = m.unsqueeze(0).expand(k * s, -1, -1)  # (K*S, M_sub, 512)
+            pred = self.model(m_bcast, d_flat)
 
-        pred = self.model(m_bcast, d_flat)  # (K*S, M_sub)
         pred = pred.reshape(k, s, -1).mean(dim=1)  # (K, M_sub) after per-dataset aggregate
 
         target = batch["accuracy"].to(self.device)  # (K, M_sub)
@@ -237,7 +245,13 @@ class Trainer:
             model_tokens, target = self._select_models(
                 model_tokens, target, model_idx
             )
-            pred = self.model(model_tokens, dataset_token)
+            if isinstance(self.model, ModelSpider):
+                m_idx_b = torch.tensor(
+                    model_idx, dtype=torch.long, device=self.device
+                ).unsqueeze(0)  # (1, len(model_idx))
+                pred = self.model(model_idx=m_idx_b, dataset_token=dataset_token)
+            else:
+                pred = self.model(model_tokens, dataset_token)
             p = pred.squeeze(0).cpu().numpy()
             t = target.squeeze(0).cpu().numpy()
             m = all_metrics(p, t)

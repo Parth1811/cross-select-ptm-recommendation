@@ -73,7 +73,7 @@ def main(cfg: DictConfig) -> None:
         len(split.eval_dataset_ids),
     )
 
-    model = build_model(cfg.model)
+    model = build_model(cfg.model, num_models=len(bank.model_ids))
     device = _pick_device(cfg.device)
     wandb_run = _init_wandb(cfg)
 
