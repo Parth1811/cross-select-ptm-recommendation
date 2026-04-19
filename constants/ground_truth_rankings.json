@@ -119,7 +119,7 @@
     "resnet18_nabird": 61.634980988593156,
     "resnet18_cub200": 43.2319391634981
   },
-  "stanford_dogs": {
+  "stanford_pets": {
     "resnet50_imagenet": 84.28904428904428,
     "resnet50_voc2007": 83.22843822843822,
     "resnet50_cifar10": 83.14685314685315,

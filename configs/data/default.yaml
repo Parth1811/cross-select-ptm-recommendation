@@ -3,11 +3,12 @@ dataset_root: ${oc.env:PTM_DATASET_ROOT,${hydra:runtime.cwd}/artifacts/extracted
 gt_path: ${oc.env:PTM_GT_PATH,${hydra:runtime.cwd}/constants/ground_truth_rankings.json}
 
 # Folder names under dataset_root that should be used as datasets.
-# Outer GT-JSON keys now match folder names (caltech_101, cifar_10, ...),
+# Outer GT-JSON keys match folder names (caltech_101, cifar_10, ...),
 # so no name map is needed \u2014 identity is used everywhere.
-# Only datasets whose tokens are actually materialized under dataset_root
-# should be listed here. Add the remaining GT targets as you download them:
-#   cub200, nabird, oxford_pets, stanford_dogs, voc2007
+# Only datasets whose CLIP shards are already materialized under
+# dataset_root should be listed here. Still to materialize on gautschi:
+#   cub200, voc2007 (raw jpgs missing in artifacts/data \u2014 re-run unzip),
+#   stanford_pets (raw data not shipped; will be downloaded separately).
 dataset_ids:
   - caltech_101
   - cifar_10

@@ -73,7 +73,7 @@ def test_ground_truth_structure():
         "oxford_pets",
         "cub200",
         "caltech_101",
-        "stanford_dogs",
+        "stanford_pets",
         "nabird",
         "voc2007",
     }
