@@ -16,7 +16,7 @@ from tqdm.auto import tqdm
 
 from ..data.dataset import ListwiseDataset, SampleBatchGenerator, TokenBank
 from ..eval.metrics import all_metrics
-from ..losses.ranking import CompatibilityLoss
+from ..losses.ranking import build_loss
 from .splits import Split
 
 
@@ -69,10 +69,7 @@ class Trainer:
         self.train_model_idx = _index_of(bank.model_ids, split.train_model_ids)
         self.eval_model_idx = _index_of(bank.model_ids, split.eval_model_ids)
 
-        self.loss_fn = CompatibilityLoss(
-            ranking_weight=cfg.loss.ranking_weight,
-            mse_weight=cfg.loss.mse_weight,
-        )
+        self.loss_fn = build_loss(cfg.loss)
         if cfg.optimizer == "adamw":
             self.optim = torch.optim.AdamW(
                 model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay

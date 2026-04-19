@@ -13,7 +13,14 @@ from cross_select.eval.metrics import (
     precision_at_k,
     weighted_kendall_tau,
 )
-from cross_select.losses.ranking import CompatibilityLoss, listnet_loss, mse_loss
+from cross_select.losses.ranking import (
+    CompatibilityLoss,
+    ListMLELoss,
+    build_loss,
+    listmle_loss,
+    listnet_loss,
+    mse_loss,
+)
 
 
 def test_metrics_perfect_ordering():
@@ -65,6 +72,80 @@ def test_compatibility_loss_returns_scalar_and_parts():
     assert {"rank", "mse", "total"} <= set(parts.keys())
     total.backward()
     assert pred.grad is not None
+
+
+def test_listmle_loss_is_zero_in_the_limit_of_perfect_ordering():
+    """With pred matching target's ordering and large-margin logits,
+    every softmax term concentrates on its own position and the NLL sum
+    collapses to ~0.
+    """
+    target = torch.tensor([[0.1, 0.2, 0.3, 0.4, 0.5]])
+    pred = torch.tensor([[-400.0, -300.0, -200.0, -100.0, 0.0]])
+    # Perfect descending alignment: highest-target is also highest-pred.
+    assert float(listmle_loss(pred, target)) < 1e-3
+
+
+def test_listmle_loss_is_invariant_to_target_scale():
+    """ListMLE consumes ``target`` only through argsort; scaling must
+    not change the loss value given the same pred.
+    """
+    torch.manual_seed(0)
+    pred = torch.randn(3, 12)
+    target = torch.randn(3, 12)
+    a = float(listmle_loss(pred, target))
+    b = float(listmle_loss(pred, target * 100 + 42))
+    assert abs(a - b) < 1e-5
+
+
+def test_listmle_loss_is_finite_with_huge_targets():
+    """Raw accuracy scale up to 100 shouldn't trip the softmax; the
+    target only enters via a sort. This is a regression guard against
+    accidentally re-introducing ListNet's softmax-over-target pattern.
+    """
+    pred = torch.randn(2, 16)
+    target = torch.rand(2, 16) * 100  # 0..100 like raw percentages
+    loss = listmle_loss(pred, target)
+    assert torch.isfinite(loss)
+
+
+def test_listmle_loss_decreases_as_pred_aligns_with_target():
+    torch.manual_seed(0)
+    target = torch.randn(1, 10)
+    aligned = target.clone()
+    misaligned = -target
+    assert listmle_loss(aligned, target) < listmle_loss(misaligned, target)
+
+
+def test_listmle_module_returns_scalar_and_parts():
+    loss_fn = ListMLELoss()
+    pred = torch.randn(2, 8, requires_grad=True)
+    target = torch.randn(2, 8)
+    total, parts = loss_fn(pred, target)
+    assert total.ndim == 0
+    assert set(parts.keys()) == {"rank", "total"}
+    total.backward()
+    assert pred.grad is not None
+
+
+def test_build_loss_factory():
+    from omegaconf import OmegaConf
+
+    listmle_cfg = OmegaConf.create({"kind": "listmle"})
+    assert isinstance(build_loss(listmle_cfg), ListMLELoss)
+
+    compat_cfg = OmegaConf.create(
+        {"kind": "compatibility", "ranking_weight": 1.0, "mse_weight": 0.1}
+    )
+    assert isinstance(build_loss(compat_cfg), CompatibilityLoss)
+
+    # Defaults to listmle when kind is absent.
+    bare = OmegaConf.create({"ranking_weight": 1.0, "mse_weight": 0.1})
+    assert isinstance(build_loss(bare), ListMLELoss)
+
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError):
+        build_loss(OmegaConf.create({"kind": "bogus"}))
 
 
 def test_baselines_registered():
