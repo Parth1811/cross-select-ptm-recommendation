@@ -1,5 +1,7 @@
 """Cross-Select and baseline model architectures."""
 
+from __future__ import annotations
+
 from .cross_select import CrossSelect
 from .model_spider import ModelSpider
 
