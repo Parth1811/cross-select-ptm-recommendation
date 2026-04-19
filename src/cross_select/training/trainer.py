@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 
 from ..data.dataset import ListwiseDataset, SampleBatchGenerator, TokenBank
 from ..eval.metrics import all_metrics
@@ -130,10 +132,36 @@ class Trainer:
         self.model.train()
         step = 0
         last_log: dict[str, torch.Tensor] = {}
-        for epoch in range(self.cfg.epochs):
+        # Route bars to the real terminal only; in non-TTY runs (SLURM
+        # stdout redirection, captured log files) fall back to a minimal
+        # format that prints one line per chunk rather than spamming.
+        is_tty = sys.stderr.isatty()
+        bar_kwargs = dict(
+            file=sys.stderr,
+            dynamic_ncols=True,
+            mininterval=0.5 if is_tty else 30.0,
+            disable=None,  # disabled automatically if stderr is not a tty
+        )
+        epoch_bar = tqdm(
+            range(self.cfg.epochs),
+            desc="epochs",
+            unit="epoch",
+            position=0,
+            leave=True,
+            **bar_kwargs,
+        )
+        for epoch in epoch_bar:
             t0 = time.time()
             steps_this_epoch = self.sample_batcher.build_epoch()
-            for batch in steps_this_epoch:
+            step_bar = tqdm(
+                steps_this_epoch,
+                desc=f"epoch {epoch}",
+                unit="step",
+                position=1,
+                leave=False,
+                **bar_kwargs,
+            )
+            for batch in step_bar:
                 self.optim.zero_grad(set_to_none=True)
                 loss, parts = self._forward_step(batch)
                 loss.backward()
@@ -141,11 +169,16 @@ class Trainer:
 
                 last_log = parts
                 step += 1
+                step_bar.set_postfix(loss=f"{float(parts['total']):.4f}")
                 if step % self.cfg.log_every == 0:
                     self._log(
                         {f"train/{k}": float(v) for k, v in parts.items()}
                         | {"train/epoch": epoch, "train/step": step}
                     )
+            step_bar.close()
+            epoch_bar.set_postfix(
+                loss=f"{float(last_log.get('total', torch.tensor(0.0))):.4f}"
+            )
 
             if (epoch + 1) % self.cfg.eval_every == 0 or epoch == self.cfg.epochs - 1:
                 metrics = self.evaluate()
@@ -153,19 +186,24 @@ class Trainer:
                     {f"val/{k}": v for k, v in metrics.items() if k != "_per_dataset"}
                     | {"val/epoch": epoch}
                 )
-                logger.info(
-                    "epoch %d eval metrics: %s",
-                    epoch,
-                    {k: v for k, v in metrics.items() if k != "_per_dataset"},
-                )
+                summary = {
+                    k: round(float(v), 4)
+                    for k, v in metrics.items()
+                    if k != "_per_dataset"
+                }
+                # logger goes to the Hydra .log file; tqdm.write draws to the
+                # terminal without breaking the active bar.
+                logger.info("epoch %d eval: %s", epoch, summary)
+                tqdm.write(f"epoch {epoch} eval: {summary}")
 
-            logger.info(
-                "epoch %d done in %.1fs steps=%d (last loss=%.4f)",
-                epoch,
-                time.time() - t0,
-                len(steps_this_epoch),
-                float(last_log.get("total", torch.tensor(0.0))),
+            msg = (
+                f"epoch {epoch} done in {time.time() - t0:.1f}s "
+                f"steps={len(steps_this_epoch)} "
+                f"(last loss={float(last_log.get('total', torch.tensor(0.0))):.4f})"
             )
+            logger.info(msg)
+            tqdm.write(msg)
+        epoch_bar.close()
 
         final = self.evaluate()
         ckpt = self.checkpoint_dir / "last.pt"
