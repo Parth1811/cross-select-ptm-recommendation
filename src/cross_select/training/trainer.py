@@ -129,14 +129,23 @@ class Trainer:
         model_tokens: torch.Tensor | None,
         model_idx: torch.Tensor | None,
         dataset_token: torch.Tensor,
+        key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Uniform forward path: Model Spider reads model_idx, others read
-        model_tokens. One of the two must be provided."""
+        model_tokens. One of the two must be provided. ``key_padding_mask``
+        is forwarded verbatim; each model's forward accepts it as a kwarg.
+        """
         if isinstance(self.model, ModelSpider):
             assert model_idx is not None
-            return self.model(model_idx=model_idx, dataset_token=dataset_token)
+            return self.model(
+                model_idx=model_idx,
+                dataset_token=dataset_token,
+                key_padding_mask=key_padding_mask,
+            )
         assert model_tokens is not None
-        return self.model(model_tokens, dataset_token)
+        return self.model(
+            model_tokens, dataset_token, key_padding_mask=key_padding_mask
+        )
 
     def _forward_step(
         self, batch: dict
@@ -144,9 +153,10 @@ class Trainer:
         """Run model + loss on one sample-level step.
 
         ``batch`` comes from ``SampleBatchGenerator.build_epoch()``:
-          dataset_tokens: (K, S, C_m, 512)
-          model_tokens:   (M_sub, 512)
-          accuracy:       (K, M_sub)
+          dataset_tokens:   (K, S, C_max, 512)  -- zero-padded over C
+          key_padding_mask: (K, C_max) bool, True = padded (ignored)
+          model_tokens:     (M_sub, 512)
+          accuracy:         (K, M_sub)
 
         Loss is computed **per sample** against the dataset's GT row and
         averaged over the K*S samples (loss-space averaging). Previously
@@ -156,18 +166,30 @@ class Trainer:
         Also returns the aggregated-per-dataset ``pred (K, M_sub)`` and
         ``target (K, M_sub)`` for probe metrics so we don't recompute.
         """
-        d = batch["dataset_tokens"].to(self.device)  # (K, S, C, 512)
+        d = batch["dataset_tokens"].to(self.device)  # (K, S, C_max, 512)
         k, s, c, feat = d.shape
-        d_flat = d.reshape(k * s, c, feat)  # (K*S, C, 512)
+        d_flat = d.reshape(k * s, c, feat)  # (K*S, C_max, 512)
+
+        mask = batch.get("key_padding_mask")
+        mask_flat = None
+        if mask is not None:
+            mask = mask.to(self.device)  # (K, C_max)
+            mask_flat = (
+                mask.unsqueeze(1).expand(k, s, c).reshape(k * s, c)
+            )  # (K*S, C_max)
 
         if isinstance(self.model, ModelSpider):
             m_idx = batch["model_idx"].to(self.device)  # (M_sub,)
             m_idx_b = m_idx.unsqueeze(0).expand(k * s, -1)
-            pred_flat = self._model_forward(None, m_idx_b, d_flat)  # (K*S, M_sub)
+            pred_flat = self._model_forward(
+                None, m_idx_b, d_flat, key_padding_mask=mask_flat
+            )
         else:
             m = batch["model_tokens"].to(self.device)  # (M_sub, 512)
             m_bcast = m.unsqueeze(0).expand(k * s, -1, -1)  # (K*S, M_sub, 512)
-            pred_flat = self._model_forward(m_bcast, None, d_flat)  # (K*S, M_sub)
+            pred_flat = self._model_forward(
+                m_bcast, None, d_flat, key_padding_mask=mask_flat
+            )
 
         # Target: broadcast (K, M_sub) -> (K, S, M_sub) -> (K*S, M_sub).
         target = batch["accuracy"].to(self.device)  # (K, M_sub)

@@ -46,10 +46,21 @@ class CrossSelect(nn.Module):
         )
 
     def forward(
-        self, model_tokens: torch.Tensor, dataset_token: torch.Tensor
+        self,
+        model_tokens: torch.Tensor,
+        dataset_token: torch.Tensor,
+        key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        """
+        Args:
+            model_tokens: ``(B, M, D_m)`` per-batch model-zoo tokens.
+            dataset_token: ``(B, C, D_d)`` per-class dataset tokens; ``C``
+                may include padding.
+            key_padding_mask: optional bool tensor ``(B, C)``, ``True``
+                marks padded positions that attention should ignore.
+        """
         q = self.model_proj(model_tokens)  # (B, M, H)
         kv = self.dataset_proj(dataset_token)  # (B, C, H)
         for block in self.blocks:
-            q = block(q, kv)
+            q = block(q, kv, key_padding_mask=key_padding_mask)
         return self.score_head(q).squeeze(-1)  # (B, M)

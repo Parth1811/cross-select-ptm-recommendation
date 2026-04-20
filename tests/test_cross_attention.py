@@ -107,6 +107,97 @@ def test_model_spider_backward_updates_token_table():
     assert torch.all(model.model_embeddings.grad[unused] == 0)
 
 
+def test_cross_select_mask_all_false_matches_no_mask():
+    """An all-False mask should be semantically identical to passing no
+    mask at all. Acts as a regression guard on the mask plumbing."""
+    torch.manual_seed(0)
+    model = CrossSelect(
+        model_token_dim=16,
+        dataset_token_dim=16,
+        hidden_dim=32,
+        num_heads=4,
+        num_layers=1,
+        dropout=0.0,
+    )
+    model.eval()
+    m, d = _toy_batch(B=2, C=7, Dd=16)
+    mask = torch.zeros(2, 7, dtype=torch.bool)
+    out_no_mask = model(m, d)
+    out_false_mask = model(m, d, key_padding_mask=mask)
+    assert torch.allclose(out_no_mask, out_false_mask, atol=1e-6)
+
+
+def test_cross_select_mask_changes_output():
+    """Masking some K positions must change the output; guards against the
+    mask silently being dropped on its way to MultiheadAttention."""
+    torch.manual_seed(0)
+    model = CrossSelect(
+        model_token_dim=16,
+        dataset_token_dim=16,
+        hidden_dim=32,
+        num_heads=4,
+        num_layers=1,
+        dropout=0.0,
+    )
+    model.eval()
+    m, d = _toy_batch(B=1, C=7, Dd=16)
+    unmasked = model(m, d)
+    mask = torch.tensor([[False, False, True, True, True, True, True]])
+    masked = model(m, d, key_padding_mask=mask)
+    assert not torch.allclose(unmasked, masked, atol=1e-4)
+
+
+def test_cross_select_padding_equivalence():
+    """Attending over a padded-and-masked (C_max) sequence should match
+    attending over the same unpadded (C_real) sequence. This is the
+    'padding doesn't leak into attention' invariant.
+    """
+    torch.manual_seed(1)
+    model = CrossSelect(
+        model_token_dim=16,
+        dataset_token_dim=16,
+        hidden_dim=32,
+        num_heads=4,
+        num_layers=1,
+        dropout=0.0,
+    )
+    model.eval()
+    m = torch.randn(1, 4, 16)
+    d_real = torch.randn(1, 5, 16)  # real length 5
+    pad = torch.zeros(1, 3, 16)  # 3 padding positions
+    d_padded = torch.cat([d_real, pad], dim=1)  # (1, 8, 16)
+    mask = torch.tensor([[False] * 5 + [True] * 3])  # ignore padding
+    out_real = model(m, d_real)
+    out_padded = model(m, d_padded, key_padding_mask=mask)
+    assert torch.allclose(out_real, out_padded, atol=1e-5)
+
+
+def test_model_spider_mask_all_false_matches_no_mask():
+    torch.manual_seed(0)
+    model = _make_spider(num_models=8)
+    model.eval()
+    _, d = _toy_batch(B=1, C=7, Dd=16)
+    idx = torch.tensor([[0, 1, 2, 3, 4]])
+    mask = torch.zeros(1, 7, dtype=torch.bool)
+    a = model(model_idx=idx, dataset_token=d)
+    b = model(model_idx=idx, dataset_token=d, key_padding_mask=mask)
+    assert torch.allclose(a, b, atol=1e-6)
+
+
+def test_model_spider_padding_equivalence():
+    torch.manual_seed(2)
+    model = _make_spider(num_models=8)
+    model.eval()
+    idx = torch.tensor([[0, 1, 2, 3, 4]])
+    d_real = torch.randn(1, 4, 16)
+    pad = torch.zeros(1, 3, 16)
+    d_padded = torch.cat([d_real, pad], dim=1)
+    mask = torch.tensor([[False] * 4 + [True] * 3])
+    a = model(model_idx=idx, dataset_token=d_real)
+    b = model(model_idx=idx, dataset_token=d_padded, key_padding_mask=mask)
+    assert torch.allclose(a, b, atol=1e-5)
+
+
 def test_build_model_from_cfg():
     cfg = OmegaConf.create(
         {

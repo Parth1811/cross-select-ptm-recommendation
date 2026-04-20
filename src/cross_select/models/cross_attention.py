@@ -37,10 +37,26 @@ class CrossAttentionBlock(nn.Module):
             nn.Dropout(dropout),
         )
 
-    def forward(self, q: torch.Tensor, kv: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        q: torch.Tensor,
+        kv: torch.Tensor,
+        key_padding_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """
+        Args:
+            q: ``(B, M, D)`` model-side query tokens.
+            kv: ``(B, C, D)`` dataset-side key/value tokens. ``C`` may
+                include padding positions; ``key_padding_mask`` marks them.
+            key_padding_mask: optional bool tensor of shape ``(B, C)``,
+                ``True`` at positions to ignore (padding). Same convention
+                as :class:`torch.nn.MultiheadAttention`.
+        """
         qn = self.norm_q(q)
         kn = self.norm_kv(kv)
-        attn_out, _ = self.attn(qn, kn, kn, need_weights=False)
+        attn_out, _ = self.attn(
+            qn, kn, kn, key_padding_mask=key_padding_mask, need_weights=False
+        )
         q = q + attn_out
         q = q + self.ffn(self.norm_ffn(q))
         return q

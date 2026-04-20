@@ -328,10 +328,21 @@ class SampleBatchGenerator:
             d_tokens.append(feats)
             accuracies.append(self.bank.accuracy[:, self._dataset_col[d]])
 
-        c_m = min(self._shard_classes[sh] for sh in shards_used)
-        d_stack = np.stack(
-            [feats[:, :c_m, :] for feats in d_tokens], axis=0
-        )  # (k, s, C_m, 512)
+        # Pad every dataset's K/V to C_max = max(C_i) across the step.
+        # Previously we cropped to C_m = min(C_i), which threw away 72-98%
+        # of per-class prototypes for non-cifar_10 datasets (cifar_10 with
+        # C=10 is always the driver in our zoo). Padded positions are
+        # masked out of attention via ``key_padding_mask``.
+        k = len(dataset_picks)
+        s = self.num_samples_per_dataset
+        c_max = max(self._shard_classes[sh] for sh in shards_used)
+        feat_dim = d_tokens[0].shape[-1]
+        padded = np.zeros((k, s, c_max, feat_dim), dtype=np.float32)
+        mask = np.ones((k, c_max), dtype=np.bool_)  # True => ignore (MHA convention)
+        for ki, (feats, shard) in enumerate(zip(d_tokens, shards_used)):
+            ci = self._shard_classes[shard]
+            padded[ki, :, :ci, :] = feats
+            mask[ki, :ci] = False
 
         # Same num_models_per_step model indices for all datasets this step,
         # drawn from the configured model pool (by default the full zoo, or
@@ -351,11 +362,12 @@ class SampleBatchGenerator:
 
         return {
             "dataset_ids": list(dataset_picks),
-            "dataset_tokens": torch.from_numpy(d_stack),  # (k, s, C_m, 512)
+            "dataset_tokens": torch.from_numpy(padded),  # (k, s, C_max, 512)
+            "key_padding_mask": torch.from_numpy(mask),  # (k, C_max) bool
             "model_tokens": torch.from_numpy(model_tokens),  # (M_sub, 512)
             "model_idx": torch.tensor(model_idx, dtype=torch.long),  # (M_sub,)
             "accuracy": torch.from_numpy(acc),  # (k, M_sub)
-            "C_m": int(c_m),
+            "C_max": int(c_max),
         }
 
 

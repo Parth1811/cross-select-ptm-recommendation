@@ -81,6 +81,7 @@ class ModelSpider(nn.Module):
         model_idx: torch.Tensor,
         dataset_token: torch.Tensor,
         model_tokens: torch.Tensor | None = None,
+        key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -89,6 +90,12 @@ class ModelSpider(nn.Module):
             dataset_token: Float tensor of shape ``(B, C, dataset_token_dim)``.
             model_tokens: Unused; accepted for signature symmetry with
                 :class:`cross_select.models.cross_select.CrossSelect`.
+            key_padding_mask: Optional bool tensor ``(B, C)``, ``True``
+                marks padded dataset-token positions that the
+                self-attention should ignore. The model-side positions
+                (the first M tokens of the concatenated sequence) are
+                never masked \u2014 the mask is prepended with M False columns
+                internally before being passed to the encoder.
 
         Returns:
             scores: ``(B, M)`` compatibility logits per model.
@@ -105,5 +112,14 @@ class ModelSpider(nn.Module):
         d = d + self.dataset_type
 
         x = torch.cat([m, d], dim=1)  # (B, M+C, H)
-        x = self.encoder(x)
+
+        if key_padding_mask is not None:
+            # Model tokens are always visible; prepend False columns.
+            model_mask = torch.zeros(
+                m.size(0), m.size(1), dtype=torch.bool, device=m.device
+            )
+            src_key_padding_mask = torch.cat([model_mask, key_padding_mask], dim=1)
+        else:
+            src_key_padding_mask = None
+        x = self.encoder(x, src_key_padding_mask=src_key_padding_mask)
         return self.score_head(x[:, : m.size(1)]).squeeze(-1)  # (B, M)

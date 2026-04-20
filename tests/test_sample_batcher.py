@@ -74,7 +74,10 @@ def test_shapes_and_driver_coverage(bank):
         assert step["model_tokens"].shape == (M, 512)
         assert step["model_idx"].shape == (M,)
         assert step["accuracy"].shape == (K, M)
-        assert step["C_m"] == 102
+        assert step["C_max"] == 102
+        # Single-dataset step: mask must be all-False (nothing padded).
+        assert step["key_padding_mask"].shape == (K, 102)
+        assert not step["key_padding_mask"].any()
 
     # 24 steps * 4 rows = 96 = every row exactly once.
     total_rows_consumed = sum(
