@@ -48,6 +48,40 @@ def mrr(pred: np.ndarray, target: np.ndarray) -> float:
     return 1.0 / rank
 
 
+def relative_accuracy_at_k(
+    pred: np.ndarray, target: np.ndarray, k: int = 3
+) -> float:
+    """PARC's Top-K Relative Accuracy (Bolya et al. 2021, Appendix E).
+
+    relAcc@k = mean(target[top_k(pred)]) / max(target)
+
+    Fraction of the best-achievable accuracy that the top-k predicted
+    models retain, on average. Unlike :func:`precision_at_k` (which only
+    checks set overlap with the true top-k), this metric rewards the
+    scorer for picking models that are actually near-optimal, even when
+    they are not in the true top-k.
+    """
+    k = min(k, pred.size)
+    top_pred = np.argsort(-pred)[:k]
+    best = float(target.max())
+    if best <= 0:
+        return 0.0
+    return float(target[top_pred].mean()) / best
+
+
+def pearson_correlation(pred: np.ndarray, target: np.ndarray) -> float:
+    """PARC's primary metric: Pearson correlation between predicted
+    score and fine-tuned accuracy on a single dataset.
+
+    Returns 0.0 if either array is constant (undefined correlation).
+    """
+    if pred.size < 2:
+        return 0.0
+    if pred.std() < 1e-12 or target.std() < 1e-12:
+        return 0.0
+    return float(np.corrcoef(pred, target)[0, 1])
+
+
 def all_metrics(
     pred: np.ndarray, target: np.ndarray, k: int = 3
 ) -> dict[str, float]:
@@ -55,5 +89,7 @@ def all_metrics(
         "weighted_kendall_tau": weighted_kendall_tau(pred, target),
         "ndcg": ndcg(pred, target),
         f"precision@{k}": precision_at_k(pred, target, k=k),
+        f"relAcc@{k}": relative_accuracy_at_k(pred, target, k=k),
+        "pearson": pearson_correlation(pred, target),
         "mrr": mrr(pred, target),
     }

@@ -90,8 +90,19 @@ class TokenBank:
 
 
 class ListwiseDataset(Dataset):
-    """One item per dataset: stochastic dataset token + full (M, D_m) model
-    zoo + (M,) accuracy vector.
+    """One item per dataset: dataset token + full (M, D_m) model zoo +
+    (M,) accuracy vector.
+
+    ``mode`` controls how the ``(C, D_d)`` dataset token is drawn:
+
+    - ``"prototype"`` (default for eval): deterministic mean over all
+      shards of the requested split.
+    - ``"stochastic"``: one random shard from the split's shard list,
+      mean-pooled over its 16 rows. Same stochasticity the train loop
+      uses; under eval the trainer should call this many times with
+      different seeds and average the predicted scores (matches the
+      training distribution ``E_x[f(x)]`` rather than the
+      ``f(E_x[x])`` that prototype eval evaluates).
     """
 
     def __init__(
@@ -100,26 +111,40 @@ class ListwiseDataset(Dataset):
         dataset_ids: list[str] | None = None,
         split: str = "train",
         pick_row: bool = False,
+        mode: str | None = None,
     ) -> None:
         self.bank = bank
         self.dataset_ids = list(dataset_ids or bank.dataset_ids)
         self.split = split
         self.pick_row = pick_row
+        # Default mode follows split for back-compat: train => stochastic,
+        # everything else => prototype.
+        if mode is None:
+            mode = "stochastic" if split == "train" else "prototype"
+        if mode not in {"stochastic", "prototype"}:
+            raise ValueError(f"Unknown ListwiseDataset mode: {mode!r}")
+        self.mode = mode
         self._index_in_bank = {d: bank.dataset_ids.index(d) for d in self.dataset_ids}
 
     def __len__(self) -> int:
         return len(self.dataset_ids)
 
+    def _shards_for(self, dataset: str) -> list:
+        if self.split == "train":
+            return self.bank.train_shards(dataset)
+        return self.bank.eval_shards(dataset, self.split)
+
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor | str]:
         dataset = self.dataset_ids[idx]
-        if self.split == "train":
+        shards = self._shards_for(dataset)
+        if self.mode == "stochastic":
             feats = sample_dataset_tokens(
-                self.bank.train_shards(dataset),
+                shards,
                 rng=self.bank.rng,
                 pick_row=self.pick_row,
             )
         else:
-            feats = dataset_prototype(self.bank.eval_shards(dataset, self.split))
+            feats = dataset_prototype(shards)
         col = self._index_in_bank[dataset]
         return {
             "dataset_id": dataset,
@@ -311,7 +336,16 @@ class SampleBatchGenerator:
         # Same num_models_per_step model indices for all datasets this step,
         # drawn from the configured model pool (by default the full zoo, or
         # split.train_model_ids when a quadrant holds out models).
-        model_idx = self.rng.sample(self.model_pool_idx, self.num_models_per_step)
+        # Special case: when num_models_per_step equals the pool size, use
+        # the deterministic pool order. This removes step-to-step target
+        # ranking jitter (ListMLE's argsort of the same 32 models is
+        # constant) and matches Model Spider's full-zoo training recipe.
+        if self.num_models_per_step == len(self.model_pool_idx):
+            model_idx = list(self.model_pool_idx)
+        else:
+            model_idx = self.rng.sample(
+                self.model_pool_idx, self.num_models_per_step
+            )
         model_tokens = self.bank.model_tokens[model_idx]  # (M_sub, 512)
         acc = np.stack(accuracies, axis=0)[:, model_idx]  # (k, M_sub)
 

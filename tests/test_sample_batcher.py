@@ -163,6 +163,19 @@ def test_accuracy_column_alignment(bank):
     assert torch.allclose(step["accuracy"][0].float(), torch.tensor(expected))
 
 
+def test_full_zoo_uses_deterministic_order(bank):
+    """When num_models_per_step equals the pool size, every step must
+    return the pool in the same (deterministic) order so the ListMLE
+    target ranking doesn't thrash between steps.
+    """
+    pool = list(range(len(bank.model_ids)))
+    gen = _make_gen(bank, K=1, S=4, M_sub=len(pool), model_pool_idx=pool)
+    steps = gen.build_epoch()
+    assert len(steps) > 0
+    for step in steps:
+        assert step["model_idx"].tolist() == pool
+
+
 def test_raises_on_oversized_knobs(bank):
     with pytest.raises(ValueError):
         _make_gen(bank, K=2)  # only 1 dataset locally

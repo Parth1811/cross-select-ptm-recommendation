@@ -10,7 +10,9 @@ from cross_select.eval.metrics import (
     all_metrics,
     mrr,
     ndcg,
+    pearson_correlation,
     precision_at_k,
+    relative_accuracy_at_k,
     weighted_kendall_tau,
 )
 from cross_select.losses.ranking import (
@@ -47,6 +49,48 @@ def test_ndcg_with_k():
     target = np.array([1.0, 2.0, 3.0, 4.0])
     pred = np.array([4.0, 3.0, 2.0, 1.0])  # reverse order
     assert ndcg(pred, target, k=2) < 1.0
+
+
+def test_relative_accuracy_at_k_perfect_is_one():
+    target = np.array([0.1, 0.5, 0.9, 0.2, 0.8])
+    # Top-3 predicted == top-3 true (0.9, 0.8, 0.5); mean / max = 0.733
+    pred = target.copy()
+    assert abs(relative_accuracy_at_k(pred, target, k=3) - (0.9 + 0.8 + 0.5) / 3 / 0.9) < 1e-9
+
+
+def test_relative_accuracy_at_k_reverse_is_low():
+    target = np.array([0.1, 0.5, 0.9, 0.2, 0.8])
+    pred = -target  # worst 3 picked
+    # Top-3 picked are indices of smallest target values: 0.1, 0.2, 0.5
+    assert abs(relative_accuracy_at_k(pred, target, k=3) - (0.1 + 0.2 + 0.5) / 3 / 0.9) < 1e-9
+
+
+def test_relative_accuracy_at_k_handles_all_zero_target():
+    pred = np.array([0.1, 0.5, 0.9])
+    target = np.zeros(3)
+    assert relative_accuracy_at_k(pred, target) == 0.0
+
+
+def test_pearson_correlation_perfect_and_reverse():
+    target = np.array([0.1, 0.5, 0.9, 0.2, 0.8])
+    assert abs(pearson_correlation(target, target) - 1.0) < 1e-9
+    assert abs(pearson_correlation(-target, target) + 1.0) < 1e-9
+
+
+def test_pearson_correlation_constant_returns_zero():
+    target = np.array([0.5, 0.5, 0.5, 0.5])
+    pred = np.array([0.1, 0.9, 0.2, 0.8])
+    # Constant target has undefined correlation; we define as 0.
+    assert pearson_correlation(pred, target) == 0.0
+
+
+def test_all_metrics_includes_parc_keys():
+    target = np.array([0.1, 0.5, 0.9, 0.2, 0.8])
+    pred = target.copy()
+    m = all_metrics(pred, target, k=3)
+    assert "relAcc@3" in m
+    assert "pearson" in m
+    assert abs(m["pearson"] - 1.0) < 1e-9
 
 
 def test_listnet_loss_decreases_when_aligned():

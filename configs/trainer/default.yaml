@@ -1,27 +1,53 @@
 epochs: 100
+
 # Sample-level sampler knobs (see cross_select.data.dataset.SampleBatchGenerator).
 # Per step: pick num_datasets_per_step datasets, load one shard from each,
 # draw num_samples_per_dataset rows from that shard, subsample
 # num_models_per_step models (shared across all K*S forwards in the step).
-# Effective batch size of predictions fed to loss = num_datasets_per_step
-# (the S sample scores are mean-aggregated per dataset before loss).
-num_models_per_step: 16
+# Set num_models_per_step = full zoo size (32) to remove the step-to-step
+# target-ranking jitter and train Model-Spider-style on all models.
+num_models_per_step: 32
 num_datasets_per_step: 4
 num_samples_per_dataset: 4
+
 # Kept for backward compatibility / eval; training does not use batch_size.
 batch_size: 16
+
 lr: 1.0e-4
 weight_decay: 0.0
 optimizer: adamw
+
+# Optional gradient clipping. 0 or null disables. 1.0 is a reasonable
+# default for transformers.
+grad_clip: 0.0
+
+# Optional LR schedule. kind ∈ {"constant", "cosine"}. cosine runs a
+# linear warmup for warmup_steps then decays to lr*min_lr_mult by the
+# final step. The trainer computes total_steps internally from
+# epochs * sampler.steps_per_epoch().
+schedule:
+  kind: constant
+  warmup_steps: 0
+  min_lr_mult: 0.0
+
 loss:
   # "listmle" = Plackett-Luce ranking (Model Spider Eq. 4). Stable and
   # scale-invariant in the target (default).
-  # "compatibility" = weighted ListNet + standardized MSE (legacy; known
-  # to produce a noisy loss curve because ListNet softmaxes raw
-  # accuracy targets). ranking_weight / mse_weight only apply here.
+  # "compatibility" = weighted ListNet + standardized MSE (legacy).
   kind: listmle
   ranking_weight: 1.0
   mse_weight: 0.1
+
+# Evaluation protocol. mode ∈ {"prototype", "stochastic"}:
+#   prototype = one deterministic mean-over-all-shards dataset token.
+#   stochastic = draw n_seeds single-shard tokens, forward each, and
+#   average the predicted scores. Matches training's E[f(x)] input
+#   distribution (rather than the f(E[x]) that prototype evaluates),
+#   which closes the train/eval mismatch observed in run e9m4pyte.
+eval:
+  mode: stochastic
+  n_seeds: 16
+
 log_every: 50
 eval_every: 5
 checkpoint_dir: artifacts/experiments/${now:%Y-%m-%d_%H-%M-%S}
