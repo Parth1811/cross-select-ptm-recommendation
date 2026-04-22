@@ -62,7 +62,14 @@ class ExperimentSpec:
 
 
 class _Experiment:
-    """Per-experiment state: model, optimizer, loss, scheduler, W&B run."""
+    """Per-experiment state: model, optimizer, loss, scheduler.
+
+    Does NOT own a W&B run. W&B in a multi-run setup is a single shared
+    run owned by :class:`MultiTrainer`, with keys prefixed ``{name}/``
+    so each experiment's metrics appear as their own panels in the
+    dashboard. This avoids the ``reinit=True`` footgun where opening a
+    second wandb.init call finishes the first run.
+    """
 
     def __init__(
         self,
@@ -71,11 +78,6 @@ class _Experiment:
         split: Split,
         device: str,
         total_steps: int,
-        wandb_group: str,
-        wandb_project: str,
-        wandb_mode: str,
-        wandb_dir: str | None,
-        full_cfg: Any,
     ) -> None:
         self.name = spec.name
         self.trainer_cfg = spec.trainer
@@ -107,41 +109,6 @@ class _Experiment:
 
         self.checkpoint_dir = Path(spec.trainer.checkpoint_dir) / self.name
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
-        self.wandb_run = None
-        if wandb_mode != "disabled":
-            try:
-                import wandb
-                from omegaconf import OmegaConf
-
-                if wandb_dir is not None:
-                    Path(wandb_dir).mkdir(parents=True, exist_ok=True)
-                self.wandb_run = wandb.init(
-                    project=wandb_project,
-                    mode=wandb_mode,
-                    group=wandb_group,
-                    name=f"{wandb_group}-{self.name}",
-                    dir=wandb_dir,
-                    config=OmegaConf.to_container(
-                        OmegaConf.create(
-                            {
-                                "experiment_name": self.name,
-                                "model": spec.model,
-                                "trainer": spec.trainer,
-                                "shared": {
-                                    "data": full_cfg.data,
-                                    "quadrant": full_cfg.quadrant,
-                                    "seed": full_cfg.seed,
-                                    "device": full_cfg.device,
-                                },
-                            }
-                        ),
-                        resolve=True,
-                    ),
-                    reinit=True,  # multi-run: reinit per experiment
-                )
-            except ImportError:
-                logger.warning("wandb not installed; skipping logging for %s", self.name)
 
     def _build_optim(self, cfg: Any) -> torch.optim.Optimizer:
         if cfg.optimizer == "adamw":
@@ -212,7 +179,13 @@ class _Experiment:
         pred_mean = pred_flat.reshape(k, s, -1).mean(dim=1).detach()
         return loss, parts, pred_mean, target.detach()
 
-    def train_step(self, batch: dict, step: int, epoch: int, log_every: int):
+    def train_step(
+        self, batch: dict, step: int, epoch: int, log_every: int
+    ) -> tuple[float, dict[str, Any] | None]:
+        """Do one optimizer step. Return ``(loss_total, payload)`` where
+        ``payload`` is either a dict of ``{prefixed_key: float}`` to log
+        or ``None`` if this step isn't a log step. The caller handles
+        the actual W&B call so there's only ever one live wandb.run."""
         self.model.train()
         self.optim.zero_grad(set_to_none=True)
         loss, parts, pred_mean, target = self._forward_step(batch)
@@ -224,11 +197,12 @@ class _Experiment:
         self.optim.step()
         if self.scheduler is not None:
             self.scheduler.step()
-        if step % log_every == 0 and self.wandb_run is not None:
-            payload = {f"train/{k}": float(v) for k, v in parts.items()}
-            payload["train/epoch"] = epoch
-            payload["train/step"] = step
-            payload["train/lr"] = float(self.optim.param_groups[0]["lr"])
+
+        payload: dict[str, Any] | None = None
+        if step % log_every == 0:
+            prefix = f"{self.name}/"
+            payload = {f"{prefix}train/{k}": float(v) for k, v in parts.items()}
+            payload[f"{prefix}train/lr"] = float(self.optim.param_groups[0]["lr"])
             # Probe metrics on the aggregated per-dataset pred.
             p = pred_mean.cpu().numpy()
             t = target.cpu().numpy()
@@ -238,10 +212,12 @@ class _Experiment:
                 for k2, v in m.items():
                     agg.setdefault(k2, []).append(v)
             payload.update(
-                {f"train/probe/{k2}": float(np.mean(v)) for k2, v in agg.items()}
+                {
+                    f"{prefix}train/probe/{k2}": float(np.mean(v))
+                    for k2, v in agg.items()
+                }
             )
-            self.wandb_run.log(payload)
-        return float(parts["total"])
+        return float(parts["total"]), payload
 
     @torch.no_grad()
     def evaluate(self, split_name: str) -> dict[str, Any]:
@@ -307,27 +283,24 @@ class _Experiment:
             pred = self.model(model_tokens, dataset_token)
         return pred.squeeze(0).cpu().numpy()
 
-    def log_eval(self, metrics: dict, epoch: int) -> None:
-        if self.wandb_run is None:
-            return
-        payload: dict[str, Any] = {"val/epoch": epoch}
+    def build_eval_payload(self, metrics: dict) -> dict[str, Any]:
+        """Flatten mean + per-dataset metrics into a dict prefixed with
+        the experiment name. Caller is responsible for logging."""
+        prefix = f"{self.name}/"
+        payload: dict[str, Any] = {}
         for k, v in metrics.items():
             if k == "_per_dataset":
                 continue
-            payload[f"val/{k}"] = v
+            payload[f"{prefix}val/{k}"] = v
         per_ds = metrics.get("_per_dataset", {}) or {}
         for dataset_id, m in per_ds.items():
             for k, v in m.items():
-                payload[f"val/{dataset_id}/{k}"] = v
-        self.wandb_run.log(payload)
+                payload[f"{prefix}val/{dataset_id}/{k}"] = v
+        return payload
 
     def save_checkpoint(self, metrics: dict) -> None:
         ckpt = self.checkpoint_dir / "last.pt"
         torch.save({"model_state": self.model.state_dict(), "metrics": metrics}, ckpt)
-
-    def finish_wandb(self):
-        if self.wandb_run is not None:
-            self.wandb_run.finish()
 
 
 class MultiTrainer:
@@ -338,11 +311,10 @@ class MultiTrainer:
         experiments: list[ExperimentSpec],
         bank: TokenBank,
         split: Split,
-        shared_trainer_cfg: Any,  # the first experiment's trainer cfg is used for
-                                  # sampler + epoch budget; per-exp cfg is used
+        shared_trainer_cfg: Any,  # sampler + epoch budget; per-exp cfg is used
                                   # for model/loss/optim only
         device: str,
-        wandb_group: str,
+        wandb_run_name: str,
         wandb_project: str,
         wandb_mode: str,
         wandb_dir: str | None,
@@ -377,14 +349,47 @@ class MultiTrainer:
                 split=split,
                 device=device,
                 total_steps=total_steps,
-                wandb_group=wandb_group,
-                wandb_project=wandb_project,
-                wandb_mode=wandb_mode,
-                wandb_dir=wandb_dir,
-                full_cfg=full_cfg,
             )
             for spec in experiments
         ]
+
+        # One shared W&B run for all experiments, keys prefixed per exp.
+        self.wandb_run = None
+        if wandb_mode != "disabled":
+            try:
+                import wandb
+                from omegaconf import OmegaConf
+
+                if wandb_dir is not None:
+                    Path(wandb_dir).mkdir(parents=True, exist_ok=True)
+                shared_config = {
+                    "wandb_run_name": wandb_run_name,
+                    "experiments": [
+                        {
+                            "name": spec.name,
+                            "model": OmegaConf.to_container(spec.model, resolve=True),
+                            "trainer": OmegaConf.to_container(spec.trainer, resolve=True),
+                        }
+                        for spec in experiments
+                    ],
+                    "shared": {
+                        "data": OmegaConf.to_container(full_cfg.data, resolve=True),
+                        "quadrant": OmegaConf.to_container(
+                            full_cfg.quadrant, resolve=True
+                        ),
+                        "seed": full_cfg.seed,
+                        "device": full_cfg.device,
+                    },
+                }
+                self.wandb_run = wandb.init(
+                    project=wandb_project,
+                    mode=wandb_mode,
+                    name=wandb_run_name,
+                    dir=wandb_dir,
+                    config=shared_config,
+                )
+            except ImportError:
+                logger.warning("wandb not installed; skipping multi-run W&B logging")
 
     def train(self) -> dict[str, dict[str, float]]:
         is_tty = sys.stderr.isatty()
@@ -417,19 +422,27 @@ class MultiTrainer:
             )
             for batch in step_bar:
                 step += 1
-                losses = {
-                    exp.name: exp.train_step(batch, step, epoch, log_every)
-                    for exp in self.experiments
-                }
+                losses: dict[str, float] = {}
+                combined_payload: dict[str, Any] = {}
+                for exp in self.experiments:
+                    loss, payload = exp.train_step(batch, step, epoch, log_every)
+                    losses[exp.name] = loss
+                    if payload is not None:
+                        combined_payload.update(payload)
+                if combined_payload:
+                    combined_payload["train/epoch"] = epoch
+                    combined_payload["train/step"] = step
+                    self._log(combined_payload)
                 step_bar.set_postfix(
                     **{k: f"{v:.3f}" for k, v in losses.items()}
                 )
             step_bar.close()
 
             if (epoch + 1) % eval_every == 0 or epoch == epochs - 1:
+                eval_payload: dict[str, Any] = {"val/epoch": epoch}
                 for exp in self.experiments:
                     metrics = exp.evaluate(eval_split)
-                    exp.log_eval(metrics, epoch)
+                    eval_payload.update(exp.build_eval_payload(metrics))
                     summary = {
                         k: round(float(v), 4)
                         for k, v in metrics.items()
@@ -437,6 +450,7 @@ class MultiTrainer:
                     }
                     logger.info("epoch %d [%s] eval: %s", epoch, exp.name, summary)
                     tqdm.write(f"epoch {epoch} [{exp.name}] eval: {summary}")
+                self._log(eval_payload)
 
             tqdm.write(
                 f"epoch {epoch} done in {time.time() - t0:.1f}s "
@@ -447,9 +461,18 @@ class MultiTrainer:
 
         # Final eval + checkpoint per experiment.
         final: dict[str, dict[str, float]] = {}
+        final_payload: dict[str, Any] = {}
         for exp in self.experiments:
             m = exp.evaluate(eval_split)
             exp.save_checkpoint(m)
-            exp.finish_wandb()
+            final_payload.update(exp.build_eval_payload(m))
             final[exp.name] = {k: v for k, v in m.items() if k != "_per_dataset"}
+        if final_payload:
+            self._log(final_payload)
+        if self.wandb_run is not None:
+            self.wandb_run.finish()
         return final
+
+    def _log(self, payload: dict[str, Any]) -> None:
+        if self.wandb_run is not None:
+            self.wandb_run.log(payload)

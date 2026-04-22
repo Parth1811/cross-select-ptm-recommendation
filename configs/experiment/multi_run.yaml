@@ -6,8 +6,9 @@
 # Invoke with:
 #   python -m cross_select.cli.multi_train experiment=multi_run
 #
-# Each entry lives in the same W&B group (``wandb.group`` below) and gets
-# its own W&B run named ``<group>-<name>``.
+# All experiments log to the same W&B run. Each metric is prefixed with
+# the experiment name (e.g. cs-listmle/val/weighted_kendall_tau), so the
+# five curves appear as distinct series in the dashboard.
 
 quadrant:
   id: 1
@@ -16,7 +17,7 @@ quadrant:
   held_out_datasets: []
 
 wandb:
-  group: multi-baseline
+  name: multi-baseline
 
 experiments:
   # A. Cross-Select, ListMLE, default

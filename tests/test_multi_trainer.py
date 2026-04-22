@@ -118,7 +118,7 @@ def test_multi_trainer_runs_two_experiments_in_lockstep(bank, tmp_path):
         split=split,
         shared_trainer_cfg=shared,
         device="cpu",
-        wandb_group="test-group",
+        wandb_run_name="test-run",
         wandb_project="cross-select",
         wandb_mode="disabled",  # no real W&B call
         wandb_dir=None,

@@ -103,15 +103,20 @@ def main(cfg: DictConfig) -> None:
             )
         )
 
-    wandb_group = cfg.wandb.get(
-        "group",
-        f"multi-{_dt.datetime.now().strftime('%Y%m%d-%H%M%S')}",
+    # Single W&B run; metrics are prefixed with the experiment name so
+    # each variant's curves appear as their own panels. The legacy
+    # ``wandb.group`` key is accepted as a fallback run name for
+    # backward compatibility.
+    wandb_run_name = (
+        cfg.wandb.get("name", None)
+        or cfg.wandb.get("group", None)
+        or f"multi-{_dt.datetime.now().strftime('%Y%m%d-%H%M%S')}"
     )
 
     logger.info(
-        "multi_train: %d experiments, wandb group=%s, device=%s",
+        "multi_train: %d experiments in one W&B run '%s', device=%s",
         len(specs),
-        wandb_group,
+        wandb_run_name,
         device,
     )
     for s in specs:
@@ -123,7 +128,7 @@ def main(cfg: DictConfig) -> None:
         split=split,
         shared_trainer_cfg=shared_trainer,
         device=device,
-        wandb_group=str(wandb_group),
+        wandb_run_name=str(wandb_run_name),
         wandb_project=str(cfg.wandb.project),
         wandb_mode=str(cfg.wandb.mode),
         wandb_dir=cfg.wandb.get("dir", None),
