@@ -1,0 +1,69 @@
+# @package _global_
+# Multi-experiment sweep: 4 Cross-Select variants + 1 Model Spider baseline.
+# All share the same SampleBatchGenerator (identical batches step-by-step)
+# so differences between curves reflect model/loss choices, not data noise.
+#
+# Invoke with:
+#   python -m cross_select.cli.multi_train experiment=multi_run
+#
+# Each entry lives in the same W&B group (``wandb.group`` below) and gets
+# its own W&B run named ``<group>-<name>``.
+
+quadrant:
+  id: 1
+  name: known_models_known_datasets
+  held_out_models: []
+  held_out_datasets: []
+
+wandb:
+  group: multi-baseline
+
+experiments:
+  # A. Cross-Select, ListMLE, default
+  - name: cs-listmle
+    model:
+      name: cross_select
+      num_layers: 4
+    trainer:
+      loss:
+        kind: listmle
+
+  # B. Cross-Select, ListMLE with temperature 0.5 (sharper)
+  - name: cs-listmle-t0.5
+    model:
+      name: cross_select
+      num_layers: 4
+    trainer:
+      loss:
+        kind: listmle
+        pred_temperature: 0.5
+
+  # C. Cross-Select, ListMLE+MSE hybrid
+  - name: cs-listmle-mse
+    model:
+      name: cross_select
+      num_layers: 4
+    trainer:
+      loss:
+        kind: listmle_mse
+        ranking_weight: 1.0
+        mse_weight: 1.0
+
+  # D. Cross-Select, pairwise BCE (RankNet-style)
+  - name: cs-pairwise-bce
+    model:
+      name: cross_select
+      num_layers: 4
+    trainer:
+      loss:
+        kind: pairwise_bce
+        margin: 0.0
+
+  # E. Model Spider baseline (learnable tokens), ListMLE
+  - name: spider-listmle
+    model:
+      name: model_spider
+      num_layers: 4
+    trainer:
+      loss:
+        kind: listmle

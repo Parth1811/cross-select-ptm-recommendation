@@ -99,6 +99,7 @@ class Trainer:
             num_samples_per_dataset=cfg.num_samples_per_dataset,
             seed=getattr(cfg, "seed", 0),
             model_pool_idx=self.train_model_idx,
+            deterministic=bool(getattr(cfg, "deterministic_sampling", False)),
         )
 
         # Eval knobs: n_seeds averages N stochastic forwards and averages

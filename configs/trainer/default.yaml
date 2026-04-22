@@ -17,9 +17,16 @@ lr: 1.0e-4
 weight_decay: 0.0
 optimizer: adamw
 
-# Optional gradient clipping. 0 or null disables. 1.0 is a reasonable
-# default for transformers.
-grad_clip: 0.0
+# Gradient clipping (max L2 norm). Set to 0 or null to disable.
+# Default is 1.0 since multi-layer attention training is sensitive to
+# occasional large-gradient steps.
+grad_clip: 1.0
+
+# Opt-in fully-reproducible sampling. When true, each epoch re-seeds
+# the sampler with base_seed + epoch_index so every epoch visits the
+# same (shard, row, partner-picks) sequence across runs. Useful for
+# noise-free A/B comparisons; leave false for normal training.
+deterministic_sampling: false
 
 # Optional LR schedule. kind ∈ {"constant", "cosine"}. cosine runs a
 # linear warmup for warmup_steps then decays to lr*min_lr_mult by the
@@ -31,12 +38,23 @@ schedule:
   min_lr_mult: 0.0
 
 loss:
-  # "listmle" = Plackett-Luce ranking (Model Spider Eq. 4). Stable and
-  # scale-invariant in the target (default).
-  # "compatibility" = weighted ListNet + standardized MSE (legacy).
+  # kind \u2208 {"listmle", "listmle_mse", "pairwise_bce", "compatibility"}:
+  #   listmle      \u2013 Plackett-Luce ranking (Model Spider Eq. 4). Default.
+  #   listmle_mse  \u2013 Weighted ListMLE + standardized MSE. Dense gradient
+  #                  signal from MSE + listwise ordering from ListMLE.
+  #                  Uses ranking_weight + mse_weight below.
+  #   pairwise_bce \u2013 RankNet-style pairwise BCE. Smooth; no suffix-sum
+  #                  explosion on bad top-of-list positions.
+  #   compatibility\u2013 Legacy ListNet + MSE; kept for reproducing old runs.
   kind: listmle
+  # pred_temperature applies to listmle and listmle_mse: pred is divided
+  # by T before the softmax. T<1 sharpens (stronger top-position
+  # gradient); T>1 softens. Default 1.0 matches the paper formula.
+  pred_temperature: 1.0
   ranking_weight: 1.0
-  mse_weight: 0.1
+  mse_weight: 1.0
+  # pairwise_bce only:
+  margin: 0.0
 
 # Evaluation protocol. mode ∈ {"prototype", "stochastic"}:
 #   prototype = one deterministic mean-over-all-shards dataset token.

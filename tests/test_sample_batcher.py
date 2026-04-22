@@ -166,6 +166,60 @@ def test_accuracy_column_alignment(bank):
     assert torch.allclose(step["accuracy"][0].float(), torch.tensor(expected))
 
 
+def test_deterministic_sampling_produces_identical_epochs(bank):
+    """Two generators built with deterministic=True and the same seed
+    must yield epoch-by-epoch identical (shard, row_ids, model_idx)
+    sequences across independent runs."""
+    from cross_select.data.dataset import SampleBatchGenerator
+
+    def make():
+        return SampleBatchGenerator(
+            bank=bank,
+            dataset_ids=bank.dataset_ids,
+            num_models_per_step=8,
+            num_datasets_per_step=1,
+            num_samples_per_dataset=4,
+            seed=42,
+            deterministic=True,
+        )
+
+    a = make()
+    b = make()
+    for _ in range(3):  # three consecutive epochs
+        steps_a = a.build_epoch()
+        steps_b = b.build_epoch()
+        assert len(steps_a) == len(steps_b)
+        for sa, sb in zip(steps_a, steps_b):
+            assert sa["dataset_ids"] == sb["dataset_ids"]
+            assert torch.equal(sa["model_idx"], sb["model_idx"])
+            assert torch.equal(sa["dataset_tokens"], sb["dataset_tokens"])
+
+
+def test_non_deterministic_default_still_varies_across_epochs(bank):
+    """With deterministic=False (default), two consecutive epochs must
+    differ at least in their partner-picks ordering so the current
+    behavior is preserved."""
+    from cross_select.data.dataset import SampleBatchGenerator
+
+    gen = SampleBatchGenerator(
+        bank=bank,
+        dataset_ids=bank.dataset_ids,
+        num_models_per_step=8,
+        num_datasets_per_step=1,
+        num_samples_per_dataset=4,
+        seed=0,
+        deterministic=False,
+    )
+    ep1 = gen.build_epoch()
+    ep2 = gen.build_epoch()
+    # First chunks differ across epochs because chunk shuffle is stateful.
+    different = any(
+        not torch.equal(a["dataset_tokens"], b["dataset_tokens"])
+        for a, b in zip(ep1, ep2)
+    )
+    assert different
+
+
 def test_full_zoo_uses_deterministic_order(bank):
     """When num_models_per_step equals the pool size, every step must
     return the pool in the same (deterministic) order so the ListMLE

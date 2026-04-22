@@ -177,6 +177,7 @@ class SampleBatchGenerator:
         num_samples_per_dataset: int = 4,
         seed: int = 0,
         model_pool_idx: list[int] | None = None,
+        deterministic: bool = False,
     ) -> None:
         if num_datasets_per_step > len(dataset_ids):
             raise ValueError(
@@ -200,6 +201,9 @@ class SampleBatchGenerator:
         self.num_datasets_per_step = num_datasets_per_step
         self.num_samples_per_dataset = num_samples_per_dataset
         self.model_pool_idx = pool
+        self.base_seed = int(seed)
+        self.deterministic = bool(deterministic)
+        self._epoch_index = 0
         self.rng = random.Random(seed)
 
         # Index shards + sizes up front so epoch construction is fast.
@@ -273,7 +277,16 @@ class SampleBatchGenerator:
         epoch. Smaller datasets cycle (reshuffle when exhausted) so they
         keep appearing as partners \u2014 this is the "upsample small datasets"
         policy. Result: steps_per_epoch == chunks(largest dataset).
+
+        Deterministic mode: when ``deterministic=True``, the internal RNG
+        is re-seeded from ``base_seed + epoch_index`` at the start of each
+        epoch so every epoch visits the same (shard, row, partner-picks)
+        sequence across runs. Useful for noise-free A/B comparisons.
         """
+        if self.deterministic:
+            self.rng.seed(self.base_seed + self._epoch_index)
+        self._epoch_index += 1
+
         k = self.num_datasets_per_step
         pool = self._build_shard_chunks()
 

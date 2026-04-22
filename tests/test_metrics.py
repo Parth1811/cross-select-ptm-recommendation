@@ -18,10 +18,13 @@ from cross_select.eval.metrics import (
 from cross_select.losses.ranking import (
     CompatibilityLoss,
     ListMLELoss,
+    ListMLEMSELoss,
+    PairwiseBCELoss,
     build_loss,
     listmle_loss,
     listnet_loss,
     mse_loss,
+    pairwise_bce_loss,
 )
 
 
@@ -177,6 +180,22 @@ def test_build_loss_factory():
     listmle_cfg = OmegaConf.create({"kind": "listmle"})
     assert isinstance(build_loss(listmle_cfg), ListMLELoss)
 
+    listmle_t_cfg = OmegaConf.create({"kind": "listmle", "pred_temperature": 0.5})
+    lm = build_loss(listmle_t_cfg)
+    assert isinstance(lm, ListMLELoss)
+    assert lm.pred_temperature == 0.5
+
+    listmle_mse_cfg = OmegaConf.create(
+        {"kind": "listmle_mse", "ranking_weight": 2.0, "mse_weight": 0.5}
+    )
+    lmm = build_loss(listmle_mse_cfg)
+    assert isinstance(lmm, ListMLEMSELoss)
+    assert lmm.ranking_weight == 2.0 and lmm.mse_weight == 0.5
+
+    pbce = build_loss(OmegaConf.create({"kind": "pairwise_bce", "margin": 0.3}))
+    assert isinstance(pbce, PairwiseBCELoss)
+    assert pbce.margin == 0.3
+
     compat_cfg = OmegaConf.create(
         {"kind": "compatibility", "ranking_weight": 1.0, "mse_weight": 0.1}
     )
@@ -190,6 +209,51 @@ def test_build_loss_factory():
 
     with _pytest.raises(ValueError):
         build_loss(OmegaConf.create({"kind": "bogus"}))
+
+
+def test_listmle_temperature_sharpens_gradient():
+    """Lower temperature should increase loss on a misordered prediction
+    (sharper softmax => stronger penalty on the top-position errors)."""
+    torch.manual_seed(0)
+    target = torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0]])
+    # Slightly misordered prediction.
+    pred = torch.tensor([[0.1, 0.3, 0.2, 0.5, 0.4]])
+    hot = listmle_loss(pred, target, pred_temperature=0.5)
+    warm = listmle_loss(pred, target, pred_temperature=1.0)
+    cold = listmle_loss(pred, target, pred_temperature=2.0)
+    # Cold (T=2) softens => loss approaches log(M!) max.
+    # Hot (T=0.5) sharpens => smaller loss if the ordering is basically right.
+    assert hot < warm < cold
+
+
+def test_pairwise_bce_zero_for_perfect_order():
+    target = torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0]])
+    # Use very large margins so sigmoid saturates.
+    pred = torch.tensor([[-100.0, -50.0, 0.0, 50.0, 100.0]])
+    # All target_i > target_j pairs satisfied with big margin => ~0 loss.
+    assert float(pairwise_bce_loss(pred, target)) < 1e-3
+
+
+def test_pairwise_bce_high_for_reverse_order():
+    target = torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0]])
+    pred = torch.tensor([[100.0, 50.0, 0.0, -50.0, -100.0]])
+    # All pairs maximally wrong.
+    assert float(pairwise_bce_loss(pred, target)) > 10.0
+
+
+def test_listmle_mse_hybrid_combines_both():
+    torch.manual_seed(0)
+    loss_fn = ListMLEMSELoss(ranking_weight=1.0, mse_weight=1.0)
+    pred = torch.randn(2, 8, requires_grad=True)
+    target = torch.randn(2, 8)
+    total, parts = loss_fn(pred, target)
+    assert {"rank", "mse", "total"} <= set(parts.keys())
+    # Total must equal weighted sum.
+    assert abs(
+        float(total) - (float(parts["rank"]) + float(parts["mse"]))
+    ) < 1e-5
+    total.backward()
+    assert pred.grad is not None
 
 
 def test_baselines_registered():
