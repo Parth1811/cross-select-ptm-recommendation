@@ -13,6 +13,7 @@ Output:
 from __future__ import annotations
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 from .cross_attention import CrossAttentionBlock
@@ -29,8 +30,13 @@ class CrossSelect(nn.Module):
         dropout: float = 0.1,
     ) -> None:
         super().__init__()
+        # Dataset encoder — paper-style dual head (same as ModelSpider)
+        self.uni_linear = nn.Linear(dataset_token_dim, 1024)
+        self.hete_linear = nn.Linear(dataset_token_dim, 1024)
+        self.dataset_out = nn.Linear(2048, hidden_dim)
+        # Model encoder — two-layer MLP for richer encoding
+        self.model_pre = nn.Linear(model_token_dim, model_token_dim)
         self.model_proj = nn.Linear(model_token_dim, hidden_dim)
-        self.dataset_proj = nn.Linear(dataset_token_dim, hidden_dim)
         self.blocks = nn.ModuleList(
             [
                 CrossAttentionBlock(hidden_dim, num_heads=num_heads, dropout=dropout)
@@ -59,8 +65,12 @@ class CrossSelect(nn.Module):
             key_padding_mask: optional bool tensor ``(B, C)``, ``True``
                 marks padded positions that attention should ignore.
         """
-        q = self.model_proj(model_tokens)  # (B, M, H)
-        kv = self.dataset_proj(dataset_token)  # (B, C, H)
+        # Dataset: dual-head encode then project to hidden_dim
+        d_uni = self.uni_linear(dataset_token)
+        d_hete = self.hete_linear(dataset_token)
+        kv = self.dataset_out(torch.cat([d_uni, d_hete], dim=-1))  # (B, C, H)
+        # Model: two-layer MLP before cross-attention
+        q = self.model_proj(F.gelu(self.model_pre(model_tokens)))  # (B, M, H)
         for block in self.blocks:
             q = block(q, kv, key_padding_mask=key_padding_mask)
         return self.score_head(q).squeeze(-1)  # (B, M)
