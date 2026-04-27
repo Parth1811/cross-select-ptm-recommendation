@@ -1,0 +1,12 @@
+# @package _global_
+# End-to-end encoder experiment: raw 8192-dim → trainable encoder → cross-attention scorer
+# Usage: python -m cross_select.cli.train experiment=encoder_ablation
+defaults:
+  - /model: cross_select_encoder
+  - /data: with_raw_vectors
+
+quadrant:
+  id: 1
+  name: encoder_ablation
+  held_out_models: []
+  held_out_datasets: []

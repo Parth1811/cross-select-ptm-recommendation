@@ -57,6 +57,7 @@ def main(cfg: DictConfig) -> None:
         gt_dataset_name_map=dict(cfg.data.get("gt_dataset_name_map", {}) or {}),
         missing_value=cfg.data.missing_value,
         seed=cfg.seed,
+        raw_model_tokens_dir=cfg.data.get("raw_model_tokens_dir", None),
     )
     split = build_split(
         all_model_ids=bank.model_ids,
@@ -79,6 +80,7 @@ def main(cfg: DictConfig) -> None:
 
     trainer_cfg = OmegaConf.create(OmegaConf.to_container(cfg.trainer, resolve=True))
     trainer_cfg.eval_split = cfg.data.eval_split
+    trainer_cfg.reconstruction_weight = cfg.model.get("reconstruction_weight", 0.0)
 
     trainer = Trainer(
         model=model,

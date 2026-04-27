@@ -37,6 +37,7 @@ from ..data.dataset import ListwiseDataset, SampleBatchGenerator, TokenBank
 from ..eval.metrics import all_metrics
 from ..losses.ranking import build_loss
 from ..models import ModelSpider, build_model
+from ..models.cross_select_encoder import CrossSelectWithEncoder
 from .splits import Split
 
 
@@ -91,6 +92,7 @@ class _Experiment:
         self.optim = self._build_optim(spec.trainer)
         self.scheduler = self._build_scheduler(spec.trainer, total_steps)
         self.grad_clip = float(getattr(spec.trainer, "grad_clip", 0.0) or 0.0)
+        self.recon_weight = float(getattr(spec.model, "reconstruction_weight", 0.0) or 0.0)
 
         eval_cfg = getattr(spec.trainer, "eval", None)
         self.eval_mode = (
@@ -169,6 +171,10 @@ class _Experiment:
                 dataset_token=d_flat,
                 key_padding_mask=mask_flat,
             )
+        elif isinstance(self.model, CrossSelectWithEncoder):
+            raw = batch["raw_model_tokens"].to(self.device)
+            raw_bcast = raw.unsqueeze(0).expand(k * s, -1, -1)
+            pred_flat = self.model(raw_bcast, d_flat, key_padding_mask=mask_flat)
         else:
             m = batch["model_tokens"].to(self.device)
             m_bcast = m.unsqueeze(0).expand(k * s, -1, -1)
@@ -176,6 +182,12 @@ class _Experiment:
         target = batch["accuracy"].to(self.device)
         target_flat = target.unsqueeze(1).expand(-1, s, -1).reshape(k * s, -1)
         loss, parts = self.loss_fn(pred_flat, target_flat)
+        # Add reconstruction loss for encoder models
+        if isinstance(self.model, CrossSelectWithEncoder) and getattr(self, 'recon_weight', 0) > 0:
+            recon_loss = self.model.reconstruction_loss()
+            if recon_loss is not None:
+                loss = loss + self.recon_weight * recon_loss
+                parts["recon"] = recon_loss.detach()
         pred_mean = pred_flat.reshape(k, s, -1).mean(dim=1).detach()
         return loss, parts, pred_mean, target.detach()
 
@@ -279,6 +291,11 @@ class _Experiment:
                 model_idx, dtype=torch.long, device=self.device
             ).unsqueeze(0)
             pred = self.model(model_idx=m_idx_b, dataset_token=dataset_token)
+        elif isinstance(self.model, CrossSelectWithEncoder):
+            raw = item["raw_model_tokens"].unsqueeze(0).to(self.device)
+            sel = torch.tensor(model_idx, dtype=torch.long, device=raw.device)
+            raw = raw.index_select(1, sel)
+            pred = self.model(raw, dataset_token)
         else:
             pred = self.model(model_tokens, dataset_token)
         return pred.squeeze(0).cpu().numpy()

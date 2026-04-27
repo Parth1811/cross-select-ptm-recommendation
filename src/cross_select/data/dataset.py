@@ -25,6 +25,7 @@ from .tokens import (
     list_shards,
     load_ground_truth,
     load_model_tokens,
+    load_raw_model_vectors,
     load_shard_rows,
     sample_dataset_tokens,
     shard_class_count,
@@ -48,6 +49,7 @@ class TokenBank:
         gt_dataset_name_map: dict[str, str] | None = None,
         missing_value: float | str = "random_rank",
         seed: int = 0,
+        raw_model_tokens_dir: str | Path | None = None,
     ) -> None:
         self.rng = random.Random(seed)
 
@@ -56,6 +58,16 @@ class TokenBank:
         self.model_tokens = np.stack(
             [tokens[m] for m in self.model_ids], axis=0
         ).astype(np.float32)  # (N_models, D_m)
+
+        # Optionally load raw 8192-dim vectors (for encoder pipeline)
+        if raw_model_tokens_dir is not None:
+            raw = load_raw_model_vectors(raw_model_tokens_dir)
+            # Only keep models that exist in both dirs
+            self.raw_model_tokens = np.stack(
+                [raw[m] for m in self.model_ids], axis=0
+            ).astype(np.float32)  # (N_models, 8192)
+        else:
+            self.raw_model_tokens = None
 
         self.dataset_ids = list(dataset_ids)
         self.dataset_root = Path(dataset_root)
@@ -146,12 +158,15 @@ class ListwiseDataset(Dataset):
         else:
             feats = dataset_prototype(shards)
         col = self._index_in_bank[dataset]
-        return {
+        out = {
             "dataset_id": dataset,
             "dataset_token": torch.from_numpy(feats),  # (C, D_d)
             "model_tokens": torch.from_numpy(self.bank.model_tokens),  # (M, D_m)
             "accuracy": torch.from_numpy(self.bank.accuracy[:, col]),  # (M,)
         }
+        if self.bank.raw_model_tokens is not None:
+            out["raw_model_tokens"] = torch.from_numpy(self.bank.raw_model_tokens)
+        return out
 
 
 class SampleBatchGenerator:
@@ -381,6 +396,9 @@ class SampleBatchGenerator:
             "model_idx": torch.tensor(model_idx, dtype=torch.long),  # (M_sub,)
             "accuracy": torch.from_numpy(acc),  # (k, M_sub)
             "C_max": int(c_max),
+            **({"raw_model_tokens": torch.from_numpy(
+                self.bank.raw_model_tokens[model_idx]
+            )} if self.bank.raw_model_tokens is not None else {}),
         }
 
 

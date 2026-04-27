@@ -47,6 +47,24 @@ def load_model_tokens(model_tokens_dir: str | Path) -> dict[str, np.ndarray]:
     return out
 
 
+def load_raw_model_vectors(raw_dir: str | Path) -> dict[str, np.ndarray]:
+    """Load raw 8192-dim parameter vectors from ``<raw_dir>/<name>.npz``.
+
+    Each file has key ``parameters`` with shape ``(8192, 1)``.
+    Returns ``{model_id: vector}`` where vector is shape ``(8192,)``.
+    """
+    raw_dir = Path(raw_dir)
+    out: dict[str, np.ndarray] = {}
+    for path in sorted(raw_dir.glob("*.npz")):
+        model_id = path.stem  # e.g. "resnet50_imagenet"
+        with np.load(path) as npz:
+            vec = np.asarray(npz["parameters"], dtype=np.float32).ravel()
+            out[model_id] = vec
+    if not out:
+        raise FileNotFoundError(f"No raw model vectors found under {raw_dir}")
+    return out
+
+
 def list_shards(dataset_root: str | Path, dataset: str, split: str) -> list[Path]:
     """List shard files for ``<dataset_root>/<dataset>/<split>/*.npz``."""
     shard_dir = Path(dataset_root) / dataset / split
