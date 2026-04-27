@@ -1,0 +1,43 @@
+Name,Type,Used for Training,Trained on Dataset,Model Architecture,Claimed Accuracy
+vit-base-mnist,Model,Yes,MNIST,ViTForImageClassification,99.49%
+clip-vit-base-patch32_mnist,Model,Yes,MNIST,CLIPVisionModel,99.57%
+Mnist-Digits-SigLIP2 ,Model,Yes,MNIST,SiglipForImageClassification,99.28%
+clip-vit-base-patch32_svhn,Model,Yes,SVHN,CLIPVisionModel,97.14%
+resnet34_svhn,Model,Yes,SVHN,Resnet34,96.26%
+densenet121_svhn,Model,Yes,SVHN,Densenet121,96.18%
+vgg16_bn_svhn,Model,Yes,SVHN,Vgg16_bn,96.12%
+Fashion-Mnist-SigLIP2,Model,Yes,Fashion-MNIST,SiglipForImageClassification,91.80%
+fashion_classification_model,Model,Yes,Fashion-MNIST,ViTForImageClassification,79.20%
+clip-vit-base-patch16_fashion_mnist,Model,Yes,Fashion-MNIST,CLIPVisionModel,94.52%
+vit-base-patch16-224,Model,Yes,ImageNet 1k,ViTForImageClassification,81.20%
+eva02_large_patch14_448.mim_m38m_ft_in22k_in1k,Model,Yes,ImageNet 1k,Eva02_large_patch14_448,90.05%
+eva02_large_patch14_448.mim_in22k_ft_in22k_in1k,Model,Yes,ImageNet 1k,Eva02_large_patch14_448,89.97%
+eva_giant_patch14_560.m30m_ft_in22k_in1k,Model,Yes,ImageNet 1k,Eva_giant_patch14_560,89.80%
+eva02_large_patch14_448.mim_in22k_ft_in1k,Model,Yes,ImageNet 1k,Eva02_large_patch14_448,89.63%
+eva_giant_patch14_336.m30m_ft_in22k_in1k,Model,Yes,ImageNet 1k,Eva_giant_patch14_336,89.57%
+eva02_large_patch14_448.mim_m38m_ft_in1k,Model,Yes,ImageNet 1k,Eva02_large_patch14_448,89.55%
+eva_giant_patch14_336.clip_ft_in1k,Model,Yes,ImageNet 1k,Eva_giant_patch14_336,89.46%
+eva_large_patch14_336.in22k_ft_in22k_in1k,Model,Yes,ImageNet 1k,Eva_large_patch14_336,89.25%
+eva_giant_patch14_224.clip_ft_in1k,Model,Yes,ImageNet 1k,Eva_giant_patch14_224,88.89%
+convnextv2_huge.fcmae_ft_in22k_in1k_512,Model,Yes,ImageNet 1k,Convnextv2_huge,88.86%
+eva_large_patch14_336.in22k_ft_in1k,Model,Yes,ImageNet 1k,Eva_large_patch14_336,88.69%
+eva02_base_patch14_448.mim_in22k_ft_in22k_in1k,Model,Yes,ImageNet 1k,Eva02_base_patch14_448,88.68%
+convnextv2_huge.fcmae_ft_in22k_in1k_384,Model,Yes,ImageNet 1k,Convnextv2_huge,88.66%
+vit_huge_patch14_clip_336.laion2b_ft_in12k_in1k,Model,Yes,ImageNet 1k,Vit_huge_patch14_clip_336,88.63%
+vit-base-patch16-224-in21k-finetuned-cifar10 ,Model,Yes,CIFAR-10,ViTForImageClassification,97.88%
+resnet18_cifar10,Model,Yes,CIFAR-10,Resnet18,94.73%
+resnet34_cifar100,Model,Yes,CIFAR-100,Resnet34,79.78%
+resnet18_cifar100,Model,Yes,CIFAR-100,Resnet18,79.26%
+Vit-Cifar100,Model,Yes,CIFAR-100,ViTForImageClassification,89.85%
+Dermacare_Skin_Lesion_classification,Model,No,HAM10000,Keras-based CNN,
+dermanalisys-model,Model,No,HAM10000,ViTForImageClassification,
+,,,,,
+convnext_xxlarge.clip_laion2b_soup_ft_in1k,Model,No,ImageNet 1k,Convnext_xxlarge,88.62%
+eva_large_patch14_196.in22k_ft_in22k_in1k,Model,No,ImageNet 1k,Eva_large_patch14_196`,88.59%
+beit_large_patch16_512.in22k_ft_in22k_in1k,Model,No,ImageNet 1k,Beit_large_patch16_512,88.58%
+maxvit_xlarge_tf_512.in21k_ft_in1k,Model,No,ImageNet 1k,ViTForImageClassification,88.54%
+beitv2_large_patch16_224.in1k_ft_in22k_in1k,Model,No,ImageNet 1k,Beitv2_large_patch16_224,88.41%
+beit_large_patch16_384.in22k_ft_in22k_in1k,Model,No,ImageNet 1k,Beit_large_patch16_384,88.38%
+tf_efficientnet_l2.ns_jft_in1k,Model,No,ImageNet 1k,Tf_efficientnet_l2,88.36%
+convnext_large_mlp.clip_laion2b_soup_ft_in12k_in1k_384,Model,No,ImageNet 1k,Convnext_large_mlp,88.33%
+maxvit_xlarge_tf_384.in21k_ft_in1k,Model,No,ImageNet 1k,ViTForImageClassification,88.30%

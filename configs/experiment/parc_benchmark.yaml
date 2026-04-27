@@ -1,0 +1,35 @@
+# @package _global_
+# PARC Benchmark Replication: Cross-Select (frozen PARC tokens) vs Model Spider (learnable)
+# Goal: Reproduce the ranking comparison on the 32-model PARC zoo × 7 target datasets.
+#
+# Usage: python -m cross_select.cli.multi_train experiment=parc_benchmark
+#
+# All experiments log to one W&B run with prefixed keys.
+
+quadrant:
+  id: 1
+  name: parc_benchmark_replication
+  held_out_models: []
+  held_out_datasets: []
+
+wandb:
+  name: parc-benchmark-replication
+
+experiments:
+  # Cross-Select with ListMLE (primary)
+  - name: cs-listmle
+    model:
+      name: cross_select
+      num_layers: 4
+    trainer:
+      loss:
+        kind: listmle
+
+  # Model Spider baseline (learnable tokens), ListMLE
+  - name: spider-listmle
+    model:
+      name: model_spider
+      num_layers: 4
+    trainer:
+      loss:
+        kind: listmle

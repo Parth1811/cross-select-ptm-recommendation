@@ -1,0 +1,23 @@
+Name,Type,Structured?,Domain,Used for training,Sub-DOmain,URL,Dimension,Notes
+MNIST,Dataset,TRUE,Vision,Yes,Digits,Link,"10 classes, 7000 img per class. 60000 train - 10000 test images",
+SVHN,Dataset,TRUE,Vision,Yes,Digits,Link,10 classes. 73257 Training - 26032 Test,Only using cropped_digits from the dataset
+USPS Digits,Dataset,TRUE,Vision,Yes,Digits,Link Link2-HF,"10 classes, 7291 Train and 2007 Test",No trained models directly
+Fashion-MNIST,Dataset,TRUE,Vision,Yes,Fashion,Link,"10 classes, 7000 img per class. 60000 train - 10000 test images",
+Deepfashion Inshop,Dataset,TRUE,Vision,Yes,Fashion,Link,"16 classes, 52,591 Total Images",Only consider 'category II' for training
+Fashion Product,Dataset,TRUE,Vision,Yes,Fashion,Link,"8 classes, 44,072 Total Images",Only consider 'usage' for training
+ImageNet 1k,Dataset,TRUE,Vision,Yes,Generic,Link,"1000 classes , 1,281,167 train - 50,000 validation - 100,000 test images.",Subset of original Image Net
+CIFAR-10,Dataset,TRUE,Vision,Yes,Generic,Link,"10 classes, 6000 images per class. 50000 train - 10000 test images",
+CIFAR-100,Dataset,TRUE,Vision,Yes,Generic,Link,"100 classes, 600 images per class. 50000 train - 10000 test images",
+Caltech-101,Dataset,TRUE,Vision,Yes,Generic,Link,101 classes. 9140 Total images,
+HAM10000,Dataset,TRUE,Vision,Yes,Medical,Link,"2 classes, 7,818 Total Images",Only 2 cancer classes and train/test spilt
+LIDC-IDRI,Dataset,TRUE,Vision,No,Medical,Link,"2 classes, 2,651 Total Images",
+BCW,Dataset,TRUE,Feature Based,No,Medical,Link,"2 classes, 569 Total data points",
+,,,,,,,,
+,,,,,,,,
+"Pokemon
+Classification",Dataset,TRUE,Vision,No,Pokemon,Link,"110 classes, 7201 Total. 4869 train - 732 test  - 1390 val images",Would be used as a blind dataset for testing
+Aircraft,Dataset,TRUE,Vision,No,Aircraft,Link,,
+SUN397,Dataset,TRUE,Vision,No,Generic,Link,,
+Standford Cars,Dataset,TRUE,Vision,No,Automobiles,Link,,
+Pets,Dataset,TRUE,Vision,No,,,,
+DTD,Dataset,TRUE,Vision,No,,,,
