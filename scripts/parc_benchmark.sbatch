@@ -4,7 +4,7 @@
 
 #SBATCH --account=davisjam
 #SBATCH --nodes=1
-#SBATCH --ntasks=8
+#SBATCH --ntasks=64
 #SBATCH --gpus-per-node=1
 #SBATCH --partition=smallgpu
 #SBATCH --mem=16G
