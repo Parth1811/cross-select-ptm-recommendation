@@ -9,7 +9,7 @@
 #SBATCH --ntasks=64
 #SBATCH --gpus-per-node=1
 #SBATCH --partition=smallgpu
-#SBATCH --mem=16G
+#SBATCH --mem=192G
 #SBATCH --qos=normal
 #SBATCH --time=08:00:00
 #SBATCH --job-name=dual_experiment
@@ -17,8 +17,6 @@
 #SBATCH --error=/home/patil185/joboutput/dual_experiment.%j.err
 
 set -euo pipefail
-
-module load cuda
 
 cd "${SLURM_SUBMIT_DIR}"
 export PYTHONPATH="${SLURM_SUBMIT_DIR}:${PYTHONPATH:-}"

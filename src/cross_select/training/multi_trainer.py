@@ -36,7 +36,7 @@ from tqdm.auto import tqdm
 from ..data.dataset import ListwiseDataset, SampleBatchGenerator, TokenBank
 from ..eval.metrics import all_metrics
 from ..losses.ranking import build_loss
-from ..models import ModelSpider, build_model
+from ..models import CrossSelect, ModelSpider, build_model
 from ..models.cross_select_encoder import CrossSelectWithEncoder
 from .splits import Split
 
@@ -178,7 +178,10 @@ class _Experiment:
         else:
             m = batch["model_tokens"].to(self.device)
             m_bcast = m.unsqueeze(0).expand(k * s, -1, -1)
-            pred_flat = self.model(m_bcast, d_flat, key_padding_mask=mask_flat)
+            m_idx = batch["model_idx"].to(self.device)
+            m_idx_b = m_idx.unsqueeze(0).expand(k * s, -1)
+            pred_flat = self.model(m_bcast, d_flat, key_padding_mask=mask_flat,
+                                   model_idx=m_idx_b)
         target = batch["accuracy"].to(self.device)
         target_flat = target.unsqueeze(1).expand(-1, s, -1).reshape(k * s, -1)
         loss, parts = self.loss_fn(pred_flat, target_flat)
@@ -188,6 +191,12 @@ class _Experiment:
             if recon_loss is not None:
                 loss = loss + self.recon_weight * recon_loss
                 parts["recon"] = recon_loss.detach()
+        # Add residual regularization for learnable residuals
+        if isinstance(self.model, CrossSelect) and hasattr(self.model, 'residual_reg_loss'):
+            reg = self.model.residual_reg_loss()
+            if reg is not None:
+                loss = loss + reg
+                parts["residual_reg"] = reg.detach()
         pred_mean = pred_flat.reshape(k, s, -1).mean(dim=1).detach()
         return loss, parts, pred_mean, target.detach()
 
@@ -297,7 +306,8 @@ class _Experiment:
             raw = raw.index_select(1, sel)
             pred = self.model(raw, dataset_token)
         else:
-            pred = self.model(model_tokens, dataset_token)
+            pred = self.model(model_tokens, dataset_token,
+                              model_idx=torch.tensor(model_idx, dtype=torch.long, device=self.device))
         return pred.squeeze(0).cpu().numpy()
 
     def build_eval_payload(self, metrics: dict) -> dict[str, Any]:

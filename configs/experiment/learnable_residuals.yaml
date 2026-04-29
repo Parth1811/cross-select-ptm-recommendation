@@ -1,0 +1,45 @@
+# @package _global_
+# Strategy A: Learnable Residuals — break PARC token degeneracy
+# by adding per-model learnable residual vectors to frozen PARC tokens.
+#
+# Usage: python -m cross_select.cli.multi_train experiment=learnable_residuals
+
+quadrant:
+  id: 1
+  name: learnable_residuals
+  held_out_models: []
+  held_out_datasets: []
+
+wandb:
+  name: learnable-residuals
+
+experiments:
+  # Cross-Select baseline (frozen PARC tokens, no residuals)
+  - name: cs-baseline
+    model:
+      name: cross_select
+      num_layers: 4
+    trainer:
+      loss:
+        kind: listmle
+
+  # Cross-Select + learnable residuals (no regularization)
+  - name: cs-residuals
+    model:
+      name: cross_select
+      num_layers: 4
+      learnable_residuals: true
+    trainer:
+      loss:
+        kind: listmle
+
+  # Cross-Select + learnable residuals + L2 reg (prevent Spider collapse)
+  - name: cs-residuals-reg
+    model:
+      name: cross_select
+      num_layers: 4
+      learnable_residuals: true
+      residual_reg_weight: 0.01
+    trainer:
+      loss:
+        kind: listmle

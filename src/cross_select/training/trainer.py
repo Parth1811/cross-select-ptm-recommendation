@@ -19,7 +19,7 @@ from tqdm.auto import tqdm
 from ..data.dataset import ListwiseDataset, SampleBatchGenerator, TokenBank
 from ..eval.metrics import all_metrics
 from ..losses.ranking import build_loss
-from ..models import ModelSpider
+from ..models import CrossSelect, ModelSpider
 from ..models.cross_select_encoder import CrossSelectWithEncoder
 from .splits import Split
 
@@ -148,7 +148,8 @@ class Trainer:
             )
         assert model_tokens is not None
         return self.model(
-            model_tokens, dataset_token, key_padding_mask=key_padding_mask
+            model_tokens, dataset_token, key_padding_mask=key_padding_mask,
+            model_idx=model_idx,
         )
 
     def _forward_step(
@@ -197,8 +198,10 @@ class Trainer:
         else:
             m = batch["model_tokens"].to(self.device)  # (M_sub, 512)
             m_bcast = m.unsqueeze(0).expand(k * s, -1, -1)  # (K*S, M_sub, 512)
+            m_idx = batch["model_idx"].to(self.device)  # (M_sub,)
+            m_idx_b = m_idx.unsqueeze(0).expand(k * s, -1)
             pred_flat = self._model_forward(
-                m_bcast, None, d_flat, key_padding_mask=mask_flat
+                m_bcast, m_idx_b, d_flat, key_padding_mask=mask_flat
             )
 
         # Target: broadcast (K, M_sub) -> (K, S, M_sub) -> (K*S, M_sub).
@@ -215,6 +218,13 @@ class Trainer:
             if recon_loss is not None:
                 loss = loss + self.recon_weight * recon_loss
                 parts["recon"] = recon_loss.detach()
+
+        # Add residual regularization for learnable residuals
+        if isinstance(self.model, CrossSelect) and hasattr(self.model, 'residual_reg_loss'):
+            reg = self.model.residual_reg_loss()
+            if reg is not None:
+                loss = loss + reg
+                parts["residual_reg"] = reg.detach()
 
         # Prediction-space aggregate still reported for probe metrics.
         pred_mean = pred_flat.reshape(k, s, -1).mean(dim=1)  # (K, M_sub)
@@ -446,7 +456,8 @@ class Trainer:
             raw = raw.index_select(1, sel)
             pred = self.model(raw, dataset_token)
         else:
-            pred = self.model(model_tokens, dataset_token)
+            pred = self.model(model_tokens, dataset_token,
+                              model_idx=torch.tensor(model_idx, dtype=torch.long, device=self.device))
         return pred.squeeze(0).cpu().numpy()
 
     # ------------------------------------------------------------------

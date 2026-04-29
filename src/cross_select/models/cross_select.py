@@ -28,8 +28,19 @@ class CrossSelect(nn.Module):
         num_heads: int = 8,
         num_layers: int = 1,
         dropout: float = 0.1,
+        learnable_residuals: bool = False,
+        num_models: int = 0,
+        residual_reg_weight: float = 0.0,
     ) -> None:
         super().__init__()
+        # Optional learnable residuals to break PARC token degeneracy
+        self.learnable_residuals = learnable_residuals
+        self.residual_reg_weight = residual_reg_weight
+        if learnable_residuals:
+            assert num_models > 0, "num_models required for learnable_residuals"
+            self.model_residuals = nn.Parameter(
+                torch.zeros(num_models, model_token_dim)
+            )
         # Dataset encoder — paper-style dual head (same as ModelSpider)
         self.uni_linear = nn.Linear(dataset_token_dim, 1024)
         self.hete_linear = nn.Linear(dataset_token_dim, 1024)
@@ -56,6 +67,7 @@ class CrossSelect(nn.Module):
         model_tokens: torch.Tensor,
         dataset_token: torch.Tensor,
         key_padding_mask: torch.Tensor | None = None,
+        model_idx: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -64,7 +76,16 @@ class CrossSelect(nn.Module):
                 may include padding.
             key_padding_mask: optional bool tensor ``(B, C)``, ``True``
                 marks padded positions that attention should ignore.
+            model_idx: optional long tensor ``(B, M)`` or ``(M,)`` — row
+                indices for learnable residuals lookup.
         """
+        # Apply learnable residuals to break PARC token degeneracy
+        if self.learnable_residuals and model_idx is not None:
+            if model_idx.ndim == 1:
+                residuals = self.model_residuals[model_idx].unsqueeze(0)
+            else:
+                residuals = self.model_residuals[model_idx]
+            model_tokens = model_tokens + residuals
         # Dataset: dual-head encode then project to hidden_dim
         d_uni = self.uni_linear(dataset_token)
         d_hete = self.hete_linear(dataset_token)
@@ -74,3 +95,9 @@ class CrossSelect(nn.Module):
         for block in self.blocks:
             q = block(q, kv, key_padding_mask=key_padding_mask)
         return self.score_head(q).squeeze(-1)  # (B, M)
+
+    def residual_reg_loss(self) -> torch.Tensor | None:
+        """L2 regularization on learnable residuals. Returns None if disabled."""
+        if self.learnable_residuals and self.residual_reg_weight > 0:
+            return self.residual_reg_weight * self.model_residuals.pow(2).mean()
+        return None
