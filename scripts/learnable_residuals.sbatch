@@ -24,7 +24,7 @@ export HF_HOME="/scratch/gautschi/patil185/hub"
 export TORCH_HOME="/scratch/gautschi/patil185/torch_cache"
 export WANDB_DIR="${SLURM_SUBMIT_DIR}/artifacts"
 
-export PTM_MODEL_TOKENS_DIR="/home/patil185/ptm-recommendation-with-transformers/artifacts/extracted/parc_model_embeddings"
+export PTM_MODEL_TOKENS_DIR="${SLURM_SUBMIT_DIR}/artifacts/extracted/parc_model_embeddings"
 export PTM_DATASET_ROOT="/home/patil185/ptm-recommendation-with-transformers/artifacts/extracted/datasets"
 export PTM_GT_PATH="${SLURM_SUBMIT_DIR}/constants/ground_truth_rankings.json"
 
