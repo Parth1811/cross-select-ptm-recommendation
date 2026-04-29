@@ -42,9 +42,12 @@ pip install --user -e ".[dev]" 2>&1 | tail -3
 
 HELD_MODELS="[resnet50_caltech101,resnet50_cifar10,resnet50_cub200,resnet50_imagenet,resnet50_nabird,resnet50_oxford_pets,resnet50_stanford_dogs,resnet50_voc2007]"
 HELD_DATASETS="[cub200,stanford_dogs]"
+# 32 total models - 8 held out = 24 training models
 COMMON="model.num_layers=4 trainer.epochs=100"
+COMMON_HELD="model.num_layers=4 trainer.epochs=100 trainer.num_models_per_step=24"
 
 # ── Q1: Known models × Known datasets ──
+# Train on 24 models + 5 datasets, eval on held-out 8 models + 2 datasets
 echo ""
 echo "=========================================="
 echo "Q1: Known Models × Known Datasets"
@@ -54,9 +57,10 @@ python -m cross_select.cli.multi_train experiment=parc_benchmark \
   "quadrant.held_out_models=${HELD_MODELS}" \
   "quadrant.held_out_datasets=${HELD_DATASETS}" \
   wandb.name=gen-q1-known-known \
-  ${COMMON} || echo "ERROR: Q1 failed ($?)"
+  ${COMMON_HELD} || echo "ERROR: Q1 failed ($?)"
 
 # ── Q2: Unknown models × Known datasets ──
+# Train on 24 models + 7 datasets, eval on held-out 8 models
 echo ""
 echo "=========================================="
 echo "Q2: Unknown Models × Known Datasets"
@@ -66,9 +70,10 @@ python -m cross_select.cli.multi_train experiment=parc_benchmark \
   "quadrant.held_out_models=${HELD_MODELS}" \
   quadrant.held_out_datasets=[] \
   wandb.name=gen-q2-unknown-models \
-  ${COMMON} || echo "ERROR: Q2 failed ($?)"
+  ${COMMON_HELD} || echo "ERROR: Q2 failed ($?)"
 
 # ── Q3: Known models × Unknown datasets ──
+# Train on 32 models + 5 datasets, eval on held-out 2 datasets (full model pool)
 echo ""
 echo "=========================================="
 echo "Q3: Known Models × Unknown Datasets"
@@ -81,6 +86,7 @@ python -m cross_select.cli.multi_train experiment=parc_benchmark \
   ${COMMON} || echo "ERROR: Q3 failed ($?)"
 
 # ── Q4: Unknown models × Unknown datasets ──
+# Train on 24 models + 5 datasets, eval on held-out 8 models + 2 datasets
 echo ""
 echo "=========================================="
 echo "Q4: Unknown Models × Unknown Datasets"
@@ -90,7 +96,7 @@ python -m cross_select.cli.multi_train experiment=parc_benchmark \
   "quadrant.held_out_models=${HELD_MODELS}" \
   "quadrant.held_out_datasets=${HELD_DATASETS}" \
   wandb.name=gen-q4-unknown-unknown \
-  ${COMMON} || echo "ERROR: Q4 failed ($?)"
+  ${COMMON_HELD} || echo "ERROR: Q4 failed ($?)"
 
 echo ""
 echo "Job end: $(date)"
