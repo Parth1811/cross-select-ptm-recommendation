@@ -1,0 +1,82 @@
+# @package _global_
+# Architecture ablation study: systematically remove components to measure contribution.
+# Usage: python -m cross_select.cli.multi_train experiment=ablation_study
+#
+# 6 variants sharing identical batches for noise-free comparison:
+#   1. full-model     — 4-layer baseline (control)
+#   2. 1-layer        — depth ablation
+#   3. no-model-pre   — remove model pre-projection MLP
+#   4. single-head    — single-head dataset encoder (no uni/hete split)
+#   5. simple-head    — minimal score head (LayerNorm→Linear)
+#   6. cosine-lr      — cosine LR schedule with warmup
+
+quadrant:
+  id: 1
+  name: ablation_study
+  held_out_models: []
+  held_out_datasets: []
+
+wandb:
+  name: ablation-study
+
+experiments:
+  # 1. Control: full 4-layer model
+  - name: full-model
+    model:
+      name: cross_select
+      num_layers: 4
+    trainer:
+      loss:
+        kind: listmle
+
+  # 2. Depth ablation: 1 layer
+  - name: 1-layer
+    model:
+      name: cross_select
+      num_layers: 1
+    trainer:
+      loss:
+        kind: listmle
+
+  # 3. Remove model pre-projection
+  - name: no-model-pre
+    model:
+      name: cross_select
+      num_layers: 4
+      no_model_pre: true
+    trainer:
+      loss:
+        kind: listmle
+
+  # 4. Single-head dataset encoder
+  - name: single-head
+    model:
+      name: cross_select
+      num_layers: 4
+      single_head_dataset: true
+    trainer:
+      loss:
+        kind: listmle
+
+  # 5. Simple score head
+  - name: simple-head
+    model:
+      name: cross_select
+      num_layers: 4
+      simple_score_head: true
+    trainer:
+      loss:
+        kind: listmle
+
+  # 6. Cosine LR schedule
+  - name: cosine-lr
+    model:
+      name: cross_select
+      num_layers: 4
+    trainer:
+      loss:
+        kind: listmle
+      schedule:
+        kind: cosine
+        warmup_steps: 200
+        min_lr_mult: 0.01

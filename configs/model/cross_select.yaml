@@ -7,3 +7,6 @@ num_layers: 1
 dropout: 0.1
 learnable_residuals: false
 residual_reg_weight: 0.0
+no_model_pre: false
+single_head_dataset: false
+simple_score_head: false

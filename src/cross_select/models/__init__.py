@@ -24,6 +24,9 @@ def build_model(cfg, *, num_models: int | None = None) -> "torch.nn.Module":  # 
             learnable_residuals=cfg.get("learnable_residuals", False),
             num_models=num_models or 0,
             residual_reg_weight=cfg.get("residual_reg_weight", 0.0),
+            no_model_pre=cfg.get("no_model_pre", False),
+            single_head_dataset=cfg.get("single_head_dataset", False),
+            simple_score_head=cfg.get("simple_score_head", False),
         )
     if cfg.name == "cross_select_encoder":
         return CrossSelectWithEncoder(

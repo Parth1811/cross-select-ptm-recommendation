@@ -31,6 +31,10 @@ class CrossSelect(nn.Module):
         learnable_residuals: bool = False,
         num_models: int = 0,
         residual_reg_weight: float = 0.0,
+        # Ablation flags
+        no_model_pre: bool = False,
+        single_head_dataset: bool = False,
+        simple_score_head: bool = False,
     ) -> None:
         super().__init__()
         # Optional learnable residuals to break PARC token degeneracy
@@ -41,12 +45,19 @@ class CrossSelect(nn.Module):
             self.model_residuals = nn.Parameter(
                 torch.zeros(num_models, model_token_dim)
             )
-        # Dataset encoder — paper-style dual head (same as ModelSpider)
-        self.uni_linear = nn.Linear(dataset_token_dim, 1024)
-        self.hete_linear = nn.Linear(dataset_token_dim, 1024)
-        self.dataset_out = nn.Linear(2048, hidden_dim)
-        # Model encoder — two-layer MLP for richer encoding
-        self.model_pre = nn.Linear(model_token_dim, model_token_dim)
+        # Dataset encoder
+        self._single_head_dataset = single_head_dataset
+        if single_head_dataset:
+            self.dataset_out = nn.Linear(dataset_token_dim, hidden_dim)
+        else:
+            # Paper-style dual head (same as ModelSpider)
+            self.uni_linear = nn.Linear(dataset_token_dim, 1024)
+            self.hete_linear = nn.Linear(dataset_token_dim, 1024)
+            self.dataset_out = nn.Linear(2048, hidden_dim)
+        # Model encoder
+        self._no_model_pre = no_model_pre
+        if not no_model_pre:
+            self.model_pre = nn.Linear(model_token_dim, model_token_dim)
         self.model_proj = nn.Linear(model_token_dim, hidden_dim)
         self.blocks = nn.ModuleList(
             [
@@ -54,13 +65,20 @@ class CrossSelect(nn.Module):
                 for _ in range(num_layers)
             ]
         )
-        self.score_head = nn.Sequential(
-            nn.LayerNorm(hidden_dim),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, 1),
-        )
+        # Score head
+        if simple_score_head:
+            self.score_head = nn.Sequential(
+                nn.LayerNorm(hidden_dim),
+                nn.Linear(hidden_dim, 1),
+            )
+        else:
+            self.score_head = nn.Sequential(
+                nn.LayerNorm(hidden_dim),
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, 1),
+            )
 
     def forward(
         self,
@@ -86,12 +104,18 @@ class CrossSelect(nn.Module):
             else:
                 residuals = self.model_residuals[model_idx]
             model_tokens = model_tokens + residuals
-        # Dataset: dual-head encode then project to hidden_dim
-        d_uni = self.uni_linear(dataset_token)
-        d_hete = self.hete_linear(dataset_token)
-        kv = self.dataset_out(torch.cat([d_uni, d_hete], dim=-1))  # (B, C, H)
-        # Model: two-layer MLP before cross-attention
-        q = self.model_proj(F.gelu(self.model_pre(model_tokens)))  # (B, M, H)
+        # Dataset encoder
+        if self._single_head_dataset:
+            kv = self.dataset_out(dataset_token)  # (B, C, H)
+        else:
+            d_uni = self.uni_linear(dataset_token)
+            d_hete = self.hete_linear(dataset_token)
+            kv = self.dataset_out(torch.cat([d_uni, d_hete], dim=-1))  # (B, C, H)
+        # Model encoder
+        if self._no_model_pre:
+            q = self.model_proj(model_tokens)  # (B, M, H)
+        else:
+            q = self.model_proj(F.gelu(self.model_pre(model_tokens)))  # (B, M, H)
         for block in self.blocks:
             q = block(q, kv, key_padding_mask=key_padding_mask)
         return self.score_head(q).squeeze(-1)  # (B, M)
