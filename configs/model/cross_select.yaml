@@ -5,3 +5,5 @@ hidden_dim: 512
 num_heads: 8
 num_layers: 1
 dropout: 0.1
+learnable_residuals: false
+residual_reg_weight: 0.0

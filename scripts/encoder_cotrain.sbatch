@@ -24,7 +24,7 @@ export TORCH_HOME="/scratch/gautschi/patil185/torch_cache"
 export WANDB_DIR="${SLURM_SUBMIT_DIR}/artifacts"
 
 OLD_REPO="/home/patil185/ptm-recommendation-with-transformers"
-export PTM_MODEL_TOKENS_DIR="${SLURM_SUBMIT_DIR}/artifacts/extracted/parc_model_embeddings_new"
+export PTM_MODEL_TOKENS_DIR="${SLURM_SUBMIT_DIR}/artifacts/extracted/parc_model_embeddings"
 export PTM_RAW_MODEL_TOKENS_DIR="${SLURM_SUBMIT_DIR}/artifacts/extracted/parc_models"
 export PTM_DATASET_ROOT="${OLD_REPO}/artifacts/extracted/datasets"
 export PTM_GT_PATH="${SLURM_SUBMIT_DIR}/constants/ground_truth_rankings.json"

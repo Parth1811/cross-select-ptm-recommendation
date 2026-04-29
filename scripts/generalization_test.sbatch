@@ -26,7 +26,7 @@ export TORCH_HOME="/scratch/gautschi/patil185/torch_cache"
 export WANDB_DIR="${SLURM_SUBMIT_DIR}/artifacts"
 
 OLD_REPO="/home/patil185/ptm-recommendation-with-transformers"
-EMB_DIR="${SLURM_SUBMIT_DIR}/artifacts/extracted/parc_model_embeddings_new"
+EMB_DIR="${SLURM_SUBMIT_DIR}/artifacts/extracted/parc_model_embeddings"
 DATASET_ROOT="${OLD_REPO}/artifacts/extracted/datasets"
 
 export PTM_MODEL_TOKENS_DIR="${EMB_DIR}"
