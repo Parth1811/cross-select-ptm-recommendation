@@ -3,8 +3,8 @@
 # The encoder (autoencoder) and cross-attention scorer train jointly end-to-end.
 # Usage: python -m cross_select.cli.train experiment=encoder_cotrain
 defaults:
-  - /model: cross_select_encoder
-  - /data: with_raw_vectors
+  - override /model: cross_select_encoder
+  - override /data: with_raw_vectors
 
 quadrant:
   id: 1

@@ -2,8 +2,8 @@
 # End-to-end encoder experiment: raw 8192-dim → trainable encoder → cross-attention scorer
 # Usage: python -m cross_select.cli.train experiment=encoder_ablation
 defaults:
-  - /model: cross_select_encoder
-  - /data: with_raw_vectors
+  - override /model: cross_select_encoder
+  - override /data: with_raw_vectors
 
 quadrant:
   id: 1

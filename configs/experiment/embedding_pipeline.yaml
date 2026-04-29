@@ -3,8 +3,8 @@
 # Uses the old ModelAutoEncoder pipeline output (no encoder co-training).
 # Usage: python -m cross_select.cli.train experiment=embedding_pipeline
 defaults:
-  - /model: cross_select
-  - /data: default
+  - override /model: cross_select
+  - override /data: default
 
 quadrant:
   id: 1
