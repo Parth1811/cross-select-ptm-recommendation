@@ -25,6 +25,40 @@
 - **Within-architecture discrimination**: CS produces 8 unique scores for 32 models; Spider produces 32. Score spread ratio is ~100:1 in Spider's favor
 - **Root cause confirmed**: PARC probes extracted on caltech101 fold 0 only; head-only fine-tuned models share backbone weights → identical features → identical probe weights
 
+### ⚡ BREAKTHROUGH: Embedding Pipeline (2026-04-29)
+
+**Cross-Select achieves τ=0.9995 with new weight-derived embeddings, matching Spider.**
+
+| Experiment | Job | CS τ | Spider τ | W&B Run |
+|---|---|---|---|---|
+| PARC Benchmark | 9646636 | 0.689 | 0.999 | `parc-benchmark-replication` (mv3ovoji) |
+| Embedding Pipeline | 9650949 | **0.9995** | 0.998 | `exp2-new-embeddings` (59kmy44o) |
+
+**What changed:** The only difference is the **model token source**:
+- **PARC Benchmark** used `parc_model_embeddings/` — the old PARC probe vectors (512-dim). These are degenerate: same-architecture models with different source datasets produce identical probe weights because head-only fine-tuning leaves the backbone (and thus the probes) unchanged.
+- **Embedding Pipeline** used `parc_model_embeddings_new/` — freshly extracted via `scripts/extract_model_embeddings.py`. This script loads the **full model weights** (not PARC probes), flattens all parameters to 8192-dim, then compresses through the pre-trained `ModelAutoEncoder` (8192→1024→512). Since different source datasets produce different classifier heads, the flattened weight vectors are unique per model even within the same architecture.
+
+**Both experiments used identical training configs:** `multi_train.py`, CrossSelect 4-layer, ListMLE loss, 100 epochs, lr=1e-4, stochastic eval with 16 seeds.
+
+**Per-dataset breakdown (CS, embedding pipeline):**
+| Dataset | τ | NDCG |
+|---|---|---|
+| caltech_101 | 0.997 | 1.0 |
+| cifar_10 | 1.000 | 1.0 |
+| cub200 | 1.000 | 1.0 |
+| nabird | 1.000 | 1.0 |
+| oxford_pets | 1.000 | 1.0 |
+| stanford_dogs | 1.000 | 1.0 |
+| voc2007 | 0.9995 | 1.0 |
+
+**Key insight:** The PARC degeneracy was never a Cross-Select architecture problem — it was a **data problem**. PARC probes discard the very information (classifier head weights) that distinguishes same-architecture models trained on different datasets. Weight-space embeddings preserve this signal. Cross-Select's cross-attention mechanism works perfectly when given discriminative model tokens.
+
+**Implications for remaining experiments:**
+- **Strategy A (learnable residuals):** Still worth running as an ablation — do residuals on top of weight embeddings help further? But no longer critical.
+- **Strategy B (encoder co-train):** The encoder co-train experiment (job 9650949, same dual job) should show whether end-to-end training on raw 8192-dim vectors outperforms the fixed autoencoder pipeline. If τ is similar, the pre-trained autoencoder is sufficient.
+- **Strategy C (fix PARC extraction):** Deprioritized — weight-space embeddings already solve the problem without needing to re-extract PARC probes.
+- **Strategy D (backbone verification):** Still informative for the thesis writeup but no longer blocking.
+
 ### What's Implemented But Not Yet Run
 - **Strategy A (learnable residuals)**: Code exists in `CrossSelect` (`learnable_residuals`, `residual_reg_weight` params) + config at `configs/experiment/learnable_residuals.yaml`
 - **Encoder pipeline**: `CrossSelectWithEncoder` + `model_encoder.py` (autoencoder/MLP/linear) + configs `encoder_ablation.yaml` and `encoder_cotrain.yaml`
@@ -32,14 +66,17 @@
 
 ---
 
-## 2. Strategy Prioritization
+## 2. Strategy Prioritization (Updated 2026-04-29)
 
-| Rank | Strategy | Effort | Expected Impact | Risk | Rationale |
-|------|----------|--------|----------------|------|-----------|
-| **1** | **A: Learnable Residuals** | Low (code done) | High | Medium — may collapse to Spider | Already implemented. Quick validation. If residuals dominate, it proves PARC tokens are useless; if they stay small, CS architecture adds value. |
-| **2** | **D: Verify Backbone Weights** | Low (diagnostic) | Determines C viability | None | 30-min script on Gautschi. If backbones are identical (head-only FT), Strategy C is dead. Must run before investing in C. |
-| **3** | **B: End-to-End Encoder (raw 8192-dim)** | Medium (code done) | High | Medium — 8192-dim may also be degenerate | `CrossSelectWithEncoder` + configs exist. Raw vectors may carry more signal than compressed 512-dim. Autoencoder reconstruction loss provides regularization. |
-| **4** | **C: Fix PARC Extraction** | High (re-run pipeline) | Highest if backbones differ | High — blocked by D | Requires access to original model checkpoints on Gautschi, re-running probe extraction across multiple target datasets. Only viable if D shows backbone differences. |
+> **Context:** Embedding Pipeline result (τ=0.9995) proves weight-space embeddings solve the PARC degeneracy. Priorities shifted from "fix broken tokens" to "ablate and validate for thesis."
+
+| Rank | Strategy | Status | Purpose | Priority |
+|------|----------|--------|---------|----------|
+| **✅** | **Weight-space embeddings (Embedding Pipeline)** | **DONE — τ=0.9995** | Proves CS architecture works with discriminative tokens | Baseline established |
+| **1** | **B: Encoder co-train (raw 8192-dim)** | Running (job 9650949) | Does end-to-end beat fixed autoencoder? Thesis ablation. | High — results pending |
+| **2** | **A: Learnable residuals** | Code ready | Ablation: do residuals help on top of weight embeddings? | Medium — nice-to-have |
+| **3** | **D: Verify backbone weights** | Not started | Thesis explanation: confirm why PARC probes are degenerate | Low — writeup only |
+| **4** | **C: Fix PARC extraction** | Deprioritized | Weight embeddings already solve the problem | Low — only if time permits |
 
 ---
 
