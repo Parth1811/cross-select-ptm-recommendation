@@ -94,7 +94,8 @@ def main(cfg: DictConfig) -> None:
 
     specs: list[ExperimentSpec] = []
     for entry in exp_block:
-        model_cfg = OmegaConf.merge(cfg.model, entry.get("model", {}))
+        base_model = OmegaConf.to_container(cfg.model, resolve=True)
+        model_cfg = OmegaConf.merge(base_model, entry.get("model", {}))
         trainer_cfg = _merge_with_shared(shared_trainer, entry.get("trainer", None))
         specs.append(
             ExperimentSpec(
