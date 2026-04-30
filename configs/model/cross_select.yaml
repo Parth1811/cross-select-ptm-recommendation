@@ -10,3 +10,10 @@ residual_reg_weight: 0.0
 no_model_pre: false
 single_head_dataset: false
 simple_score_head: false
+
+# Encoder keys (used by cross_select_encoder variants; null = disabled)
+raw_dim: null
+encoder_kind: null
+encoder_hidden_dim: null
+encoder_dropout: null
+reconstruction_weight: null
