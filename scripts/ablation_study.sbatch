@@ -24,6 +24,7 @@ export TORCH_HOME="/scratch/gautschi/patil185/torch_cache"
 export WANDB_DIR="${SLURM_SUBMIT_DIR}/artifacts"
 
 export PTM_MODEL_TOKENS_DIR="${SLURM_SUBMIT_DIR}/artifacts/extracted/parc_model_embeddings"
+export PTM_RAW_MODEL_TOKENS_DIR="${SLURM_SUBMIT_DIR}/artifacts/extracted/parc_models"
 export PTM_DATASET_ROOT="/home/patil185/ptm-recommendation-with-transformers/artifacts/extracted/datasets"
 export PTM_GT_PATH="${SLURM_SUBMIT_DIR}/constants/ground_truth_rankings.json"
 
@@ -35,7 +36,7 @@ echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || ec
 
 pip install --user -e ".[dev]" 2>&1 | tail -3
 
-echo "Running ablation study (6 variants)..."
+echo "Running ablation study (7 variants)..."
 python -m cross_select.cli.multi_train experiment=ablation_study
 
 echo ""

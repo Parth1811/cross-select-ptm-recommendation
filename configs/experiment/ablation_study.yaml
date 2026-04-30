@@ -2,13 +2,17 @@
 # Architecture ablation study: systematically remove components to measure contribution.
 # Usage: python -m cross_select.cli.multi_train experiment=ablation_study
 #
-# 6 variants sharing identical batches for noise-free comparison:
+# 7 variants sharing identical batches for noise-free comparison:
 #   1. full-model     — 4-layer baseline (control)
 #   2. 1-layer        — depth ablation
 #   3. no-model-pre   — remove model pre-projection MLP
 #   4. single-head    — single-head dataset encoder (no uni/hete split)
 #   5. simple-head    — minimal score head (LayerNorm→Linear)
 #   6. cosine-lr      — cosine LR schedule with warmup
+#   7. no-encoder     — replace encoder with avg-pool 8192→512 (no learned params)
+
+defaults:
+  - override /data: with_raw_vectors
 
 quadrant:
   id: 1
@@ -80,3 +84,21 @@ experiments:
         kind: cosine
         warmup_steps: 200
         min_lr_mult: 0.01
+
+  # 7. No encoder — avg-pool 8192→512, no learned encoder params
+  - name: no-encoder
+    model:
+      name: cross_select_encoder
+      raw_dim: 8192
+      model_token_dim: 512
+      dataset_token_dim: 512
+      hidden_dim: 512
+      num_heads: 8
+      num_layers: 4
+      dropout: 0.1
+      encoder_kind: pool
+      encoder_hidden_dim: 1024
+      encoder_dropout: 0.0
+    trainer:
+      loss:
+        kind: listmle

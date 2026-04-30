@@ -69,12 +69,27 @@ class LinearEncoder(nn.Module):
         return self.encode(x), None
 
 
+class PoolEncoder(nn.Module):
+    """Parameter-free adaptive average pooling from 8192→512."""
+
+    def __init__(self, input_dim: int = 8192, output_dim: int = 512, **_):
+        super().__init__()
+        self.pool = nn.AdaptiveAvgPool1d(output_dim)
+
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        return self.pool(x.unsqueeze(1)).squeeze(1)
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, None]:
+        return self.encode(x), None
+
+
 def build_encoder(kind: str = "autoencoder", **kwargs) -> nn.Module:
     """Factory for model encoders."""
     registry = {
         "autoencoder": ModelAutoEncoder,
         "mlp": MLPEncoder,
         "linear": LinearEncoder,
+        "pool": PoolEncoder,
     }
     if kind not in registry:
         raise ValueError(f"Unknown encoder kind: {kind!r}. Options: {list(registry)}")
